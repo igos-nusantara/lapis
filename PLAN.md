@@ -72,6 +72,7 @@ internal/control       privileged socket handler (input validation, ownership ch
 internal/container     nspawn args, PID-1 shim, prepare/exec/cleanup, attach (cgroup+seccomp)
 internal/seccomp       BPF filter, verified in-kernel by a test
 internal/netsvc        nftables, DHCP, DNS, Docker firewall integration
+internal/wlproxy       Wayland proxy that fits app windows to their apps
 internal/rootfs        loop mounts + overlays
 internal/images        OTA channels, resumable download with mirror failover, sha256, lock
 internal/extras        ARM translation installer (overlay + properties)
@@ -119,9 +120,9 @@ a clean stop that leaves no mounts, links, nftables or DOCKER-USER rules behind.
 
 Screenshots from that server (headless sway/weston in Docker):
 `docs/screenshots/full-ui.png` (whole Android desktop in one window) and
-`docs/screenshots/multi-window-tiling.png` (Play Store and Browser as two host
-windows, before the tablet default). `docs/screenshots/tablet-settings.png` shows
-Settings in tablet mode (VM).
+`docs/screenshots/app-windows.png` (Settings and Browser as two app-sized host
+windows, phone mode) and `docs/screenshots/tablet-settings.png` (Settings in
+tablet mode).
 
 ### Findings from the e2e runs (handled in code)
 - Android chowns `/data` to its system user (uid 1000); the control service now
@@ -145,6 +146,12 @@ Settings in tablet mode (VM).
 - Android remembers each app's last window bounds; switching display mode clears
   them so apps open the way the new mode wants.
 - `lapis session start` refuses a Wayland socket nobody listens on.
+- App windows were as large as the Android display (the images' hwcomposer
+  sets the display as window geometry), and any compositor size suggestion
+  resized the whole Android display (a floating WM's 75x50 minimum, or a tile).
+  A Wayland proxy in the session (`internal/wlproxy`) now sets each app
+  window's geometry to its layers' extent and neutralizes size suggestions;
+  e2e checks the host window size in phone and tablet mode.
 - systemd-nspawn's `/sys` has no `/sys/fs/bpf`, so Android's bpfloader could not
   pin its network maps and `system_server` crashed on every app removal
   (`NetworkStatsService` NPE on `UID_REMOVED`). lapis now mounts a private bpf
@@ -176,13 +183,11 @@ Settings in tablet mode (VM).
 - **SteamOS:** the kernel has no binder (§6). lapis itself installs cleanly as a
   systemd-sysext.
 - Real-hardware runs with an AMD/Intel GPU (tests so far used software rendering).
-- **Per-app window size:** each app's host window is as large as the Android
-  display. In tablet mode apps fill it; in phone mode the app is drawn in the
-  middle and a tiling compositor crops it. Next step: size each toplevel to its
-  task bounds (check on KDE/GNOME first).
-- **Tiling window managers** (sway, i3-like): the image's hwcomposer forwards
-  host window sizes to Android, so tiling keeps resizing tasks and apps can open
-  hidden; floating desktops (KDE, GNOME, and sway with floating rules) work.
+- Resizing an app window from the desktop does not resize the Android app yet
+  (the window follows the app, not the other way round). On tiling window
+  managers a tile smaller than the app crops it; the Android display itself
+  is no longer resized. Next step: turn a compositor's size suggestion for an
+  app window into an Android task resize.
 - Notifications posted by the Android shell are not forwarded by Android itself
   (app notifications are).
 - Binder devices are world-accessible, so another local user could call the

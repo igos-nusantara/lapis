@@ -40,11 +40,8 @@ ensure_compositor() {
     systemctl --user stop weston 2>/dev/null
     systemctl --user reset-failed sway 2>/dev/null
     mkdir -p ~/.config/sway
-    # Floating windows, like the desktops lapis targets (KDE, GNOME);
-    # a tiling layout keeps resizing Android's tasks. The images' hwcomposer
-    # sizes the Android display from its first window, so new windows start
-    # at the output size instead of sway's 75x50 floating minimum.
-    printf 'xwayland disable\noutput HEADLESS-1 resolution 1280x800\nfor_window [app_id=".+"] floating enable\nfloating_minimum_size 1280 x 800\n' > ~/.config/sway/config
+    # Floating windows, like the desktops lapis targets (KDE, GNOME).
+    printf 'xwayland disable\noutput HEADLESS-1 resolution 1280x800\nfor_window [app_id=".+"] floating enable\n' > ~/.config/sway/config
     systemd-run --user --unit=sway -E XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" \
       -E WLR_BACKENDS=headless -E WLR_LIBINPUT_NO_DEVICES=1 -E WLR_RENDERER=pixman sway >/dev/null
   fi
@@ -97,7 +94,7 @@ if [ "${E2E_COMPOSITOR:-}" = docker ]; then
         -e XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" -e HOME=/tmp \
         -e WLR_BACKENDS=headless -e WLR_LIBINPUT_NO_DEVICES=1 -e WLR_RENDERER=pixman \
         -v "$XDG_RUNTIME_DIR:$XDG_RUNTIME_DIR" lapis-e2e-sway \
-        sh -c 'printf "xwayland disable\noutput HEADLESS-1 resolution 1280x800\nfor_window [app_id=\".+\"] floating enable\nfloating_minimum_size 1280 x 800\n" > /tmp/cfg; exec sway -c /tmp/cfg' >/dev/null
+        sh -c 'printf "xwayland disable\noutput HEADLESS-1 resolution 1280x800\nfor_window [app_id=\".+\"] floating enable\n" > /tmp/cfg; exec sway -c /tmp/cfg' >/dev/null
     fi
     for _ in $(seq 40); do
       SWAYSOCK=$(ls -t "$XDG_RUNTIME_DIR"/sway-ipc.*.sock 2>/dev/null | head -1)
@@ -175,3 +172,22 @@ task_sw() {
     END { print last }'
 }
 settings_phone_layout() { v=$(task_sw com.android.settings) && [ -n "$v" ] && [ "$v" -lt 600 ]; }
+
+# window_size PKG|full-ui: "WxH" of the host window, from the compositor.
+window_size() {
+  swaymsg -t get_tree | python3 -c '
+import json, sys
+want = sys.argv[1]
+def walk(n):
+    if n.get("app_id") == want:
+        r = n["rect"]
+        print("%dx%d" % (r["width"], r["height"])); sys.exit(0)
+    for k in ("nodes", "floating_nodes"):
+        for c in n.get(k, []): walk(c)
+walk(json.load(sys.stdin))' "$(lapis debug app-id "$1")"
+}
+
+# window_width_below PKG N / window_width_at_least PKG N
+window_width_below() { w=$(window_size "$1") && [ -n "$w" ] && [ "${w%x*}" -lt "$2" ]; }
+window_width_at_least() { w=$(window_size "$1") && [ -n "$w" ] && [ "${w%x*}" -ge "$2" ]; }
+display_size_is() { [ "$(sudo lapis shell wm size | awk -F': ' '/Physical size/ {print $2}' | tr -d '\r')" = "$1" ]; }

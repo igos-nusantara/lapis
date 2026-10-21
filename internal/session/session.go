@@ -12,11 +12,15 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/igos-nusantara/lapis/internal/api"
+	"github.com/igos-nusantara/lapis/internal/compat"
+	"github.com/igos-nusantara/lapis/internal/config"
 	"github.com/igos-nusantara/lapis/internal/control"
 	"github.com/igos-nusantara/lapis/internal/hostsvc"
+	"github.com/igos-nusantara/lapis/internal/wlproxy"
 )
 
 // FromEnv builds a session description from the caller's environment.
@@ -85,6 +89,9 @@ func Run(ctx context.Context, self string) error {
 	if err != nil {
 		return err
 	}
+	if err := startWaylandProxy(ctx, s); err != nil {
+		slog.Warn("window fitting disabled", "err", err)
+	}
 	if _, err := control.Call(api.Request{Op: api.OpStart, Session: s}); err != nil {
 		return err
 	}
@@ -112,6 +119,7 @@ func Run(ctx context.Context, self string) error {
 	defer t.Stop()
 	var pruner Pruner
 	state := api.StateRunning
+	stoppedOnce := false
 	// Periodic work talks to Android over binder, which blocks while the
 	// container is frozen; it runs beside the main loop so stopping the
 	// session never waits on it.
@@ -155,10 +163,17 @@ func Run(ctx context.Context, self string) error {
 			if err != nil {
 				return err
 			}
+			// Two polls in a row, so a restart between them is not taken
+			// for the end of the session.
 			if resp.State == api.StateStopped {
-				slog.Info("Android container stopped")
-				return nil
+				if stoppedOnce {
+					slog.Info("Android container stopped")
+					return nil
+				}
+				stoppedOnce = true
+				continue
 			}
+			stoppedOnce = false
 			state = resp.State
 		}
 	}
@@ -179,4 +194,35 @@ func waitBoot(ctx context.Context) bool {
 	}
 	slog.Warn("Android did not finish booting within 3 minutes")
 	return false
+}
+
+// proxySocket is the Wayland socket Android connects to when windows are
+// fitted to their apps.
+const proxySocket = "lapis-wayland"
+
+// startWaylandProxy puts the window-fitting proxy between Android and the
+// compositor, unless the configuration keeps full-size windows.
+func startWaylandProxy(ctx context.Context, s *api.Session) error {
+	if cfg, err := config.Load(); err == nil && cfg.Display.FullSizeWindows {
+		return nil
+	}
+	upstream := s.WaylandDisplay
+	if !filepath.IsAbs(upstream) {
+		upstream = filepath.Join(s.XDGRuntimeDir, upstream)
+	}
+	l, err := wlproxy.Listen(filepath.Join(s.XDGRuntimeDir, proxySocket))
+	if err != nil {
+		return err
+	}
+	appPrefix := compat.AppID("")
+	go func() {
+		err := wlproxy.Serve(ctx, l, upstream, func(appID string) bool {
+			return strings.HasPrefix(appID, appPrefix)
+		})
+		if err != nil {
+			slog.Warn("wayland proxy stopped", "err", err)
+		}
+	}()
+	s.WaylandDisplay = proxySocket
+	return nil
 }

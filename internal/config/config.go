@@ -60,6 +60,10 @@ type Display struct {
 	// "maximized" opens every app filling the display (tablet layout),
 	// "freeform" keeps Android's phone-sized windows. Empty follows Mode.
 	Windows string `toml:"windows"`
+	// FullSizeWindows keeps every app window as large as the Android
+	// display (the images' native behavior) instead of fitting it to the
+	// app.
+	FullSizeWindows bool `toml:"full_size_windows"`
 }
 
 const (

@@ -54,7 +54,7 @@ Daily use (desktop user):
   lapis app launch <package>
   lapis app intent <action> <uri>
   lapis show-full-ui                show the whole Android desktop in one window
-  sudo lapis display [tablet|phone|<dpi>|maximized|freeform]
+  sudo lapis display [tablet|phone|<dpi>|maximized|freeform|fit|full]
                                       show or set the layout (default tablet,
                                       apps maximized)
   lapis freeze | unfreeze
@@ -557,26 +557,32 @@ func displayCmd(args []string) error {
 		if cfg.Display.MaximizeApps() {
 			windows = config.WindowsMaximized
 		}
-		fmt.Printf("mode: %s\ndensity: %d dpi\nwindows: %s\n", mode, dpi, windows)
+		size := "fit to app"
+		if cfg.Display.FullSizeWindows {
+			size = "full display"
+		}
+		fmt.Printf("mode: %s\ndensity: %d dpi\nwindows: %s\nwindow size: %s\n", mode, dpi, windows, size)
 		return nil
 	}
 	if len(args) != 1 {
-		return errors.New("usage: lapis display [tablet|phone|<dpi>|maximized|freeform]")
+		return errors.New("usage: lapis display [tablet|phone|<dpi>|maximized|freeform|fit|full]")
 	}
 	if err := sysutil.RequireRoot("display"); err != nil {
 		return err
 	}
 	switch args[0] {
+	case "fit", "full":
+		cfg.Display.FullSizeWindows = args[0] == "full"
 	case config.WindowsMaximized, config.WindowsFreeform:
 		cfg.Display.Windows = args[0]
 	case config.DisplayTablet, config.DisplayPhone:
-		cfg.Display = config.Display{Mode: args[0]}
+		cfg.Display = config.Display{Mode: args[0], FullSizeWindows: cfg.Display.FullSizeWindows}
 	default:
 		dpi, err := strconv.Atoi(args[0])
 		if err != nil || dpi < 80 || dpi > 640 {
-			return errors.New("use tablet, phone, maximized, freeform or a dpi between 80 and 640")
+			return errors.New("use tablet, phone, maximized, freeform, fit, full or a dpi between 80 and 640")
 		}
-		cfg.Display = config.Display{Mode: "custom", Density: dpi, Windows: cfg.Display.Windows}
+		cfg.Display = config.Display{Mode: "custom", Density: dpi, Windows: cfg.Display.Windows, FullSizeWindows: cfg.Display.FullSizeWindows}
 	}
 	if err := cfg.Save(); err != nil {
 		return err

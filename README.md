@@ -13,6 +13,8 @@ kernel. The host side is a **single static Go binary** plus a few systemd units.
 
 ![Settings in the default tablet layout](docs/screenshots/tablet-settings.png)
 
+![Two apps as their own, app-sized windows (phone mode)](docs/screenshots/app-windows.png)
+
 ## Inspiration
 
 lapis is inspired by [Waydroid](https://waydro.id) and boots the same
@@ -97,6 +99,21 @@ mode = "tablet"        # "tablet" or "phone"
 ```
 
 Restart the session to apply.
+
+### Window size
+
+Each app's host window is as large as the app: in tablet mode that is the
+whole display (apps are maximized), in phone mode the phone-sized app window.
+lapis does this with a small Wayland proxy between Android and your
+compositor; it also keeps the compositor from resizing the Android display.
+Floating desktops (KDE, GNOME) show each app at its size; on tiling window
+managers apps keep their size inside the tile, so a tile smaller than the
+app crops it. To get the images' original behavior (every window as large
+as the display):
+
+```sh
+sudo lapis display full    # or: fit (default)
+```
 
 ### Google Play certification
 

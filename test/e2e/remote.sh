@@ -12,7 +12,7 @@ ROOTDEV=$(findmnt -no SOURCE / | xargs -I{} sh -c 'readlink -f {}')
 
 step "install (.deb, phase 4)"
 check "apt installs package + systemd-container" sudo apt-get install -y -q "$D"/lapis_*_amd64.deb
-check "version" sh -c 'lapis version | grep -q "lapis 0.3.7"'
+check "version" sh -c 'lapis version | grep -q "lapis 0.4.1"'
 check "control socket enabled" systemctl is-active -q lapis-control.socket
 systemctl --user daemon-reload
 lapis doctor | sed 's/^/    /'
@@ -48,6 +48,8 @@ wait_for 60 "Settings window on host" has_window_for com.android.settings
 check "tablet layout by default (sw >= 600dp)" sw_at_least 600
 check "launch Settings" lapis app launch com.android.settings
 wait_for 30 "Settings maximized" settings_maximized
+wait_for 30 "tablet: host window spans the display" window_width_at_least com.android.settings 1200
+check "Android display keeps the output size" display_size_is 1280x800
 check "disable app" adroid pm disable-user --user 0 org.lineageos.recorder
 wait_for 90 "entry removed when app is gone" sh -c "! test -e $APPS/lapis.org.lineageos.recorder.desktop"
 check "re-enable app" adroid pm enable --user 0 org.lineageos.recorder

@@ -21,6 +21,7 @@ check "open a Settings sub-page first" lapis app intent android.settings.APPLICA
 sleep 3
 check "launch Settings" lapis app launch com.android.settings
 wait_for 20 "Settings maximized (tablet layout)" settings_maximized
+wait_for 20 "tablet: host window spans the display" window_width_at_least com.android.settings 1200
 check "switch to phone" sudo lapis display phone
 session_stop; wait_for 60 "stopped" state_is STOPPED
 session_start; wait_for 300 "booted (phone)" booted
@@ -28,6 +29,8 @@ check "phone smallest width < 600dp" sw_below 600
 check "launch Settings (phone)" lapis app launch com.android.settings
 sleep 5
 check "Settings uses the phone layout (< 600dp)" settings_phone_layout
+wait_for 20 "phone: host window fits the app" window_width_below com.android.settings 700
+check "Android display keeps the output size" display_size_is 1280x800
 check "back to tablet" sudo lapis display tablet
 session_stop; wait_for 60 "stopped" state_is STOPPED
 session_start; wait_for 300 "booted (tablet)" booted

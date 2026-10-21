@@ -58,7 +58,11 @@ func Env(s *api.Session) []string {
 // State returns the container state from its systemd unit.
 func State() string {
 	active, _ := sysutil.Output("systemctl", "is-active", paths.ContainerUnit)
-	if active != "active" && active != "reloading" {
+	switch active {
+	case "active", "reloading", "activating", "deactivating":
+		// A restart (e.g. Android rebooting itself) passes through
+		// deactivating and activating; it is not a stop.
+	default:
 		return api.StateStopped
 	}
 	freezer, _ := sysutil.Output("systemctl", "show", "-P", "FreezerState", paths.ContainerUnit)
