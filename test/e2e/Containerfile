@@ -1,0 +1,4 @@
+# Throwaway VM host: runs QEMU/KVM so lapis can be tested on a kernel
+# with binder (Arch linux-zen) without touching the real host.
+FROM docker.io/library/archlinux:latest
+RUN pacman -Syu --noconfirm qemu-base cdrtools openssh && pacman -Scc --noconfirm

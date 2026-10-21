@@ -1,0 +1,36 @@
+# nfpm config for .deb, .rpm and Arch packages. Built by scripts/release.sh,
+# which stages the binary and units under dist/stage-$ARCH/.
+name: lapis
+arch: ${NFPM_ARCH}
+platform: linux
+version: ${VERSION}
+section: utils
+priority: optional
+maintainer: Eka Tresna Irawan <anak10thn@gmail.com>
+description: |
+  Android with Google Play in a systemd-nspawn container on the host
+  kernel, with Google Play support and per-app Wayland windows.
+license: MIT
+homepage: https://github.com/igos-nusantara/lapis
+depends:
+  - util-linux
+overrides:
+  deb:
+    depends: [util-linux, systemd-container]
+  rpm:
+    depends: [util-linux, systemd-container]
+  archlinux:
+    depends: [util-linux, systemd]
+contents:
+  - src: dist/stage-${GOARCH}/usr/bin/lapis
+    dst: /usr/bin/lapis
+    file_info: {mode: 0755}
+  - src: dist/stage-${GOARCH}/usr/lib/systemd/system/
+    dst: /usr/lib/systemd/system/
+    type: tree
+  - src: dist/stage-${GOARCH}/usr/lib/systemd/user/
+    dst: /usr/lib/systemd/user/
+    type: tree
+scripts:
+  postinstall: packaging/postinstall.sh
+  preremove: packaging/preremove.sh

@@ -1,0 +1,416 @@
+// Package control is the privileged gateway between users and the
+// container. systemd socket-activates one `lapis control handle` per
+// connection (Accept=yes); each request is a single JSON line.
+package control
+
+import (
+	"bufio"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	"golang.org/x/sys/unix"
+
+	"github.com/igos-nusantara/lapis/internal/api"
+	"github.com/igos-nusantara/lapis/internal/compat"
+	"github.com/igos-nusantara/lapis/internal/config"
+	"github.com/igos-nusantara/lapis/internal/container"
+	"github.com/igos-nusantara/lapis/internal/paths"
+	"github.com/igos-nusantara/lapis/internal/sysutil"
+)
+
+// Call sends one request to the control socket and waits for the answer.
+func Call(req api.Request) (*api.Response, error) {
+	conn, err := net.DialTimeout("unix", paths.ControlSocket, 5*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("lapis control service not reachable (is lapis-control.socket enabled?): %w", err)
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(3 * time.Minute))
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
+		return nil, err
+	}
+	var resp api.Response
+	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+		return nil, err
+	}
+	if !resp.OK {
+		return &resp, errors.New(resp.Error)
+	}
+	return &resp, nil
+}
+
+// HandleStdio serves the connection systemd passed as stdin.
+func HandleStdio() error {
+	f := os.NewFile(0, "control-socket")
+	conn, err := net.FileConn(f)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	uc, ok := conn.(*net.UnixConn)
+	if !ok {
+		return errors.New("stdin is not a unix socket")
+	}
+	cred, err := peerCred(uc)
+	if err != nil {
+		return err
+	}
+	conn.SetDeadline(time.Now().Add(3 * time.Minute))
+
+	var req api.Request
+	if err := json.NewDecoder(bufio.NewReader(conn)).Decode(&req); err != nil {
+		return err
+	}
+	resp, err := handle(cred, req)
+	if err != nil {
+		resp = &api.Response{Error: err.Error()}
+	} else {
+		resp.OK = true
+	}
+	return json.NewEncoder(conn).Encode(resp)
+}
+
+func peerCred(c *net.UnixConn) (*unix.Ucred, error) {
+	raw, err := c.SyscallConn()
+	if err != nil {
+		return nil, err
+	}
+	var cred *unix.Ucred
+	var credErr error
+	err = raw.Control(func(fd uintptr) {
+		cred, credErr = unix.GetsockoptUcred(int(fd), unix.SOL_SOCKET, unix.SO_PEERCRED)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return cred, credErr
+}
+
+var errFrozen = errors.New("Android is suspended (frozen); open an app or run `lapis unfreeze`")
+
+var pkgName = regexp.MustCompile(`^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)+$`)
+var propName = regexp.MustCompile(`^[A-Za-z0-9_.\-:@]+$`)
+
+func handle(cred *unix.Ucred, req api.Request) (*api.Response, error) {
+	if req.Op == api.OpStart {
+		return start(cred, req.Session)
+	}
+	if req.Op == api.OpStatus {
+		resp := &api.Response{State: container.State()}
+		if s, err := container.LoadSession(); err == nil && resp.State != api.StateStopped {
+			resp.Session = s
+		}
+		return resp, nil
+	}
+
+	// Everything else is limited to root and the session owner.
+	s, err := container.LoadSession()
+	if err != nil || container.State() == api.StateStopped {
+		return nil, errors.New("Android container is not running")
+	}
+	if cred.Uid != 0 && int(cred.Uid) != s.UID {
+		return nil, errors.New("permission denied: container belongs to another user")
+	}
+
+	// Commands run inside a frozen container hang until it is thawed.
+	// Opening an app is a reason to wake Android; queries are not.
+	if container.State() == api.StateFrozen {
+		switch req.Op {
+		case api.OpLaunch, api.OpFullUI:
+			if err := sysutil.Run("systemctl", "thaw", paths.ContainerUnit); err != nil {
+				return nil, err
+			}
+		case api.OpGetprop, api.OpApps, api.OpMaximize:
+			return nil, errFrozen
+		}
+	}
+
+	switch req.Op {
+	case api.OpStop:
+		// A frozen container cannot be stopped until it is thawed.
+		sysutil.Run("systemctl", "thaw", paths.ContainerUnit)
+		return &api.Response{}, sysutil.Run("systemctl", "stop", paths.ContainerUnit)
+	case api.OpRestart:
+		return &api.Response{}, sysutil.Run("systemctl", "restart", paths.ContainerUnit)
+	case api.OpFreeze:
+		return &api.Response{}, sysutil.Run("systemctl", "freeze", paths.ContainerUnit)
+	case api.OpUnfreeze:
+		return &api.Response{}, sysutil.Run("systemctl", "thaw", paths.ContainerUnit)
+	case api.OpGetprop:
+		if !propName.MatchString(req.Prop) {
+			return nil, errors.New("invalid property name")
+		}
+		v, err := container.Output(s, "/system/bin/getprop", req.Prop)
+		return &api.Response{Value: v}, err
+	case api.OpApps:
+		apps, err := launcherApps(s)
+		return &api.Response{Apps: apps}, err
+	case api.OpLaunch:
+		if !pkgName.MatchString(req.Package) {
+			return nil, errors.New("invalid package name")
+		}
+		return &api.Response{}, launch(s, req.Package)
+	case api.OpMaximize:
+		if !pkgName.MatchString(req.Package) {
+			return nil, errors.New("invalid package name")
+		}
+		return &api.Response{}, maximizeIfConfigured(s, req.Package)
+	case api.OpAdbKey:
+		return &api.Response{}, authorizeAdbKey(s, req.Key)
+	case api.OpFullUI:
+		return &api.Response{}, showFullUI(s)
+	}
+	return nil, fmt.Errorf("unknown operation %q", req.Op)
+}
+
+func start(cred *unix.Ucred, s *api.Session) (*api.Response, error) {
+	if s == nil {
+		return nil, errors.New("missing session")
+	}
+	if cred.Uid != 0 && int(cred.Uid) != s.UID {
+		return nil, errors.New("cannot start a session on behalf of another user")
+	}
+	if state := container.State(); state != api.StateStopped {
+		cur, err := container.LoadSession()
+		if err == nil && cur.UID == s.UID {
+			// Reattaching to a container left suspended: wake it up.
+			if state == api.StateFrozen {
+				if err := sysutil.Run("systemctl", "thaw", paths.ContainerUnit); err != nil {
+					return nil, err
+				}
+			}
+			return &api.Response{State: container.State(), Session: cur}, nil
+		}
+		return nil, errors.New("Android container is already used by another session")
+	}
+	if err := validateSession(s); err != nil {
+		return nil, err
+	}
+
+	if err := os.MkdirAll(paths.RunDir, 0o755); err != nil {
+		return nil, err
+	}
+	data, err := json.Marshal(s)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(paths.SessionFile, data, 0o600); err != nil {
+		return nil, err
+	}
+	if err := sysutil.Run("systemctl", "start", paths.ContainerUnit); err != nil {
+		return nil, fmt.Errorf("%w (see: journalctl -u %s)", err, paths.ContainerUnit)
+	}
+	return &api.Response{State: container.State(), Session: s}, nil
+}
+
+// validateSession ensures every host path the user hands us is theirs, so
+// the root service never bind-mounts someone else's files.
+func validateSession(s *api.Session) error {
+	owned := func(p string) error {
+		if strings.ContainsAny(p, "\n\r:") || !filepath.IsAbs(p) {
+			return fmt.Errorf("invalid path %q", p)
+		}
+		var st syscall.Stat_t
+		if err := syscall.Stat(p, &st); err != nil {
+			return fmt.Errorf("%s: %w", p, err)
+		}
+		if int(st.Uid) != s.UID {
+			return fmt.Errorf("%s is not owned by uid %d", p, s.UID)
+		}
+		return nil
+	}
+	wl, err := container.WaylandSocket(s)
+	if err != nil {
+		return fmt.Errorf("wayland socket: %w", err)
+	}
+	if err := owned(wl); err != nil {
+		return err
+	}
+	// Android chowns /data to its system user, so the data directory
+	// itself may not belong to the user after the first boot; its parent
+	// does. Resolve symlinks so the checked path is the one mounted.
+	data, err := filepath.EvalSymlinks(s.DataDir)
+	if err != nil {
+		return fmt.Errorf("data dir: %w", err)
+	}
+	if err := owned(filepath.Dir(data)); err != nil {
+		if err2 := owned(data); err2 != nil {
+			return err
+		}
+	}
+	s.DataDir = data
+	if s.PulseRuntimePath != "" {
+		if p := filepath.Join(s.PulseRuntimePath, "native"); sysutil.Exists(p) {
+			if err := owned(p); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func launcherApps(s *api.Session) ([]api.App, error) {
+	out, err := container.Output(s, "/system/bin/cmd", "package", "query-activities",
+		"--components", "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER")
+	if err != nil {
+		return nil, err
+	}
+	var apps []api.App
+	seen := map[string]bool{}
+	for _, line := range strings.Split(out, "\n") {
+		comp := strings.TrimSpace(line)
+		pkg, act, ok := strings.Cut(comp, "/")
+		if !ok || !pkgName.MatchString(pkg) || seen[pkg] {
+			continue
+		}
+		seen[pkg] = true
+		apps = append(apps, api.App{Package: pkg, Activity: act})
+	}
+	return apps, nil
+}
+
+// launch opens an app window: the images' hwcomposer only maps windows
+// of packages listed in the active_apps property.
+func launch(s *api.Session, pkg string) error {
+	// Right after a thaw or a package change PackageManager can report a
+	// partial list for several seconds.
+	var apps []api.App
+	for try := 0; try < 30; try++ {
+		var err error
+		if apps, err = launcherApps(s); err != nil {
+			return err
+		}
+		if hasApp(apps, pkg) {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	for _, a := range apps {
+		if a.Package != pkg {
+			continue
+		}
+		if _, err := container.Output(s, "/system/bin/setprop", compat.Prop("active_apps"), pkg); err != nil {
+			return err
+		}
+		if _, err := container.Output(s, "/system/bin/am", "start",
+			"-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER",
+			"-n", a.Package+"/"+a.Activity); err != nil {
+			return err
+		}
+		policy := "immersive.status=*"
+		if v, _ := container.Output(s, "/system/bin/getprop", compat.PersistProp("multi_windows")); v == "true" {
+			policy = "immersive.full=*"
+		}
+		if _, err := container.Output(s, "/system/bin/settings", "put", "global", "policy_control", policy); err != nil {
+			return err
+		}
+		return maximizeIfConfigured(s, pkg)
+	}
+	return fmt.Errorf("%s has no launcher activity", pkg)
+}
+
+// showFullUI shows the whole Android desktop in one window.
+func showFullUI(s *api.Session) error {
+	if _, err := container.Output(s, "/system/bin/setprop", compat.Prop("active_apps"), compat.FullUIApp); err != nil {
+		return err
+	}
+	if _, err := container.Output(s, "/system/bin/settings", "put", "global", "policy_control", "null*"); err != nil {
+		return err
+	}
+	_, err := container.Output(s, "/system/bin/am", "start",
+		"-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME")
+	return err
+}
+
+var adbKey = regexp.MustCompile(`^[A-Za-z0-9+/=]{100,}( [^\n\r]{0,256})?$`)
+
+// authorizeAdbKey adds a host adb public key to Android's adb_keys, so
+// `adb connect` works with ro.adb.secure=1 without an on-screen prompt.
+func authorizeAdbKey(s *api.Session, key string) error {
+	key = strings.TrimSpace(key)
+	if len(key) > 4096 || !adbKey.MatchString(key) {
+		return errors.New("invalid adb public key")
+	}
+	dir := filepath.Join(s.DataDir, "misc", "adb")
+	if err := os.MkdirAll(dir, 0o2750); err != nil {
+		return err
+	}
+	path := filepath.Join(dir, "adb_keys")
+	existing, _ := os.ReadFile(path)
+	if strings.Contains(string(existing), key) {
+		return nil
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o640)
+	if err != nil {
+		return err
+	}
+	if _, err := f.WriteString(key + "\n"); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	// system:shell, as Android's adbd expects.
+	return os.Chown(path, 1000, 2000)
+}
+
+var (
+	taskLine  = regexp.MustCompile(`taskId=(\d+): ([A-Za-z0-9_.]+)/`)
+	appBounds = regexp.MustCompile(`mAppBounds=Rect\((\d+), (\d+) - (\d+), (\d+)\)`)
+)
+
+// maximizeIfConfigured resizes the package's task to the display's app
+// area, which gives apps their tablet layout instead of Android's
+// phone-sized freeform window. The task appears shortly after launch.
+func maximizeIfConfigured(s *api.Session, pkg string) error {
+	cfg, err := config.Load()
+	if err != nil || !cfg.Display.MaximizeApps() {
+		return err
+	}
+	for try := 0; try < 25; try++ {
+		out, err := container.Output(s, "/system/bin/am", "stack", "list")
+		if err != nil {
+			return err
+		}
+		// Old tasks of the same app can linger in recents; only the newest
+		// visible one is the window just opened.
+		task, newest, bounds := "", -1, []string(nil)
+		for _, line := range strings.Split(out, "\n") {
+			if m := taskLine.FindStringSubmatch(line); m != nil && m[2] == pkg && strings.Contains(line, "visible=true") {
+				if id, _ := strconv.Atoi(m[1]); id > newest {
+					task, newest = m[1], id
+				}
+			}
+			if strings.Contains(line, "mActivityType=home") && bounds == nil {
+				if m := appBounds.FindStringSubmatch(line); m != nil {
+					bounds = m[1:]
+				}
+			}
+		}
+		if task != "" && bounds != nil {
+			_, err := container.Output(s, append([]string{"/system/bin/am", "task", "resize", task}, bounds...)...)
+			return err
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return nil // not fatal: the app is open, just not maximized
+}
+
+func hasApp(apps []api.App, pkg string) bool {
+	for _, a := range apps {
+		if a.Package == pkg {
+			return true
+		}
+	}
+	return false
+}
