@@ -152,6 +152,11 @@ tablet mode).
   A Wayland proxy in the session (`internal/wlproxy`) now sets each app
   window's geometry to its layers' extent and neutralizes size suggestions;
   e2e checks the host window size in phone and tablet mode.
+- The other direction: a size the compositor asks for an app window (a user
+  resize, a tile, maximize) becomes an Android task resize, debounced, with
+  placeholder sizes (a floating WM's 75x50) ignored; the launch-time maximize
+  steps aside when the host window already chose a size. e2e resizes a floating
+  window and tiles two apps side by side.
 - systemd-nspawn's `/sys` has no `/sys/fs/bpf`, so Android's bpfloader could not
   pin its network maps and `system_server` crashed on every app removal
   (`NetworkStatsService` NPE on `UID_REMOVED`). lapis now mounts a private bpf
@@ -183,11 +188,6 @@ tablet mode).
 - **SteamOS:** the kernel has no binder (§6). lapis itself installs cleanly as a
   systemd-sysext.
 - Real-hardware runs with an AMD/Intel GPU (tests so far used software rendering).
-- Resizing an app window from the desktop does not resize the Android app yet
-  (the window follows the app, not the other way round). On tiling window
-  managers a tile smaller than the app crops it; the Android display itself
-  is no longer resized. Next step: turn a compositor's size suggestion for an
-  app window into an Android task resize.
 - Notifications posted by the Android shell are not forwarded by Android itself
   (app notifications are).
 - Binder devices are world-accessible, so another local user could call the

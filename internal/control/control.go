@@ -129,7 +129,7 @@ func handle(cred *unix.Ucred, req api.Request) (*api.Response, error) {
 			if err := sysutil.Run("systemctl", "thaw", paths.ContainerUnit); err != nil {
 				return nil, err
 			}
-		case api.OpGetprop, api.OpApps, api.OpMaximize:
+		case api.OpGetprop, api.OpApps, api.OpMaximize, api.OpResize:
 			return nil, errFrozen
 		}
 	}
@@ -164,6 +164,11 @@ func handle(cred *unix.Ucred, req api.Request) (*api.Response, error) {
 			return nil, errors.New("invalid package name")
 		}
 		return &api.Response{}, maximizeIfConfigured(s, req.Package)
+	case api.OpResize:
+		if !pkgName.MatchString(req.Package) {
+			return nil, errors.New("invalid package name")
+		}
+		return &api.Response{}, resizeTask(s, req)
 	case api.OpAdbKey:
 		return &api.Response{}, authorizeAdbKey(s, req.Key)
 	case api.OpFullUI:
@@ -377,6 +382,11 @@ func maximizeIfConfigured(s *api.Session, pkg string) error {
 	if err != nil || !cfg.Display.MaximizeApps() {
 		return err
 	}
+	// The host window already decided this app's size (tiling, a resize
+	// by the user): don't undo it.
+	if fi, err := os.Stat(resizedStamp(pkg)); err == nil && time.Since(fi.ModTime()) < 15*time.Second {
+		return nil
+	}
 	for try := 0; try < 25; try++ {
 		out, err := container.Output(s, "/system/bin/am", "stack", "list")
 		if err != nil {
@@ -404,6 +414,74 @@ func maximizeIfConfigured(s *api.Session, pkg string) error {
 		time.Sleep(200 * time.Millisecond)
 	}
 	return nil // not fatal: the app is open, just not maximized
+}
+
+var taskBounds = regexp.MustCompile(`taskId=(\d+): ([A-Za-z0-9_.]+)/.*bounds=\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]`)
+
+func resizedStamp(pkg string) string { return filepath.Join(paths.RunDir, "resized", pkg) }
+
+// resizeTask makes an app's task as large as its host window. It keeps its
+// position unless it would leave the display.
+func resizeTask(s *api.Session, req api.Request) error {
+	if req.ToWidth < 1 || req.ToHeight < 1 {
+		return errors.New("invalid size")
+	}
+	os.MkdirAll(filepath.Dir(resizedStamp(req.Package)), 0o755)
+	os.WriteFile(resizedStamp(req.Package), nil, 0o644)
+	for try := 0; try < 25; try++ {
+		out, err := container.Output(s, "/system/bin/am", "stack", "list")
+		if err != nil {
+			return err
+		}
+		task, newest := "", -1
+		var l, t, r, b int
+		var disp []int
+		for _, line := range strings.Split(out, "\n") {
+			if m := taskBounds.FindStringSubmatch(line); m != nil && m[2] == req.Package && strings.Contains(line, "visible=true") {
+				if id, _ := strconv.Atoi(m[1]); id > newest {
+					task, newest = m[1], id
+					l, _ = strconv.Atoi(m[3])
+					t, _ = strconv.Atoi(m[4])
+					r, _ = strconv.Atoi(m[5])
+					b, _ = strconv.Atoi(m[6])
+				}
+			}
+			if strings.Contains(line, "mActivityType=home") && disp == nil {
+				if m := appBounds.FindStringSubmatch(line); m != nil {
+					for _, v := range m[1:] {
+						n, _ := strconv.Atoi(v)
+						disp = append(disp, n)
+					}
+				}
+			}
+		}
+		if task != "" && disp != nil {
+			nl, nt, nr, nb := fitTask(l, t, r, b, req, disp)
+			_, err := container.Output(s, "/system/bin/am", "task", "resize", task,
+				strconv.Itoa(nl), strconv.Itoa(nt), strconv.Itoa(nr), strconv.Itoa(nb))
+			return err
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return nil
+}
+
+// fitTask places a ToWidth x ToHeight task where the task (l, t, r, b) is,
+// inside the display's app area. The window's layer extent is not used:
+// during transitions it can include display-sized layers.
+func fitTask(l, t, r, b int, req api.Request, disp []int) (int, int, int, int) {
+	const minTask = 200
+	dl, dt, dr, db := disp[0], disp[1], disp[2], disp[3]
+	w := max(minTask, min(dr-dl, req.ToWidth))
+	h := max(minTask, min(db-dt, req.ToHeight))
+	if l+w > dr {
+		l = dr - w
+	}
+	if t+h > db {
+		t = db - h
+	}
+	l, t = max(dl, l), max(dt, t)
+	return l, t, l + w, t + h
 }
 
 func hasApp(apps []api.App, pkg string) bool {

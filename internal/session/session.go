@@ -215,10 +215,20 @@ func startWaylandProxy(ctx context.Context, s *api.Session) error {
 		return err
 	}
 	appPrefix := compat.AppID("")
+	opts := wlproxy.Options{
+		IsApp: func(appID string) bool { return strings.HasPrefix(appID, appPrefix) },
+		// The app follows its host window (resize, tiling, maximize).
+		Resize: func(appID string, cur, want wlproxy.Size) {
+			_, err := control.Call(api.Request{Op: api.OpResize,
+				Package: strings.TrimPrefix(appID, appPrefix),
+				ToWidth: int(want.W), ToHeight: int(want.H)})
+			if err != nil {
+				slog.Warn("resizing app to its window failed", "app", appID, "err", err)
+			}
+		},
+	}
 	go func() {
-		err := wlproxy.Serve(ctx, l, upstream, func(appID string) bool {
-			return strings.HasPrefix(appID, appPrefix)
-		})
+		err := wlproxy.Serve(ctx, l, upstream, opts)
 		if err != nil {
 			slog.Warn("wayland proxy stopped", "err", err)
 		}

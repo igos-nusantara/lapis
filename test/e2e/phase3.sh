@@ -35,6 +35,23 @@ check "back to tablet" sudo lapis display tablet
 session_stop; wait_for 60 "stopped" state_is STOPPED
 session_start; wait_for 300 "booted (tablet)" booted
 
+step "host window drives the app size"
+S=$(lapis debug app-id com.android.settings)
+check "launch Settings" lapis app launch com.android.settings
+sleep 8
+swaymsg "[app_id=\"$S\"] resize set 700 500" >/dev/null
+wait_for 30 "resized window: app follows (700 wide)" app_follows_window com.android.settings 700
+# Tiling: two apps side by side, each gets half the output.
+swaymsg 'for_window [app_id=".+"] floating disable' >/dev/null
+swaymsg "[app_id=\"$S\"] floating disable" >/dev/null
+swaymsg layout splith >/dev/null
+check "launch Browser" lapis app launch org.lineageos.jelly
+wait_for 30 "tiled: Settings fits its tile" app_follows_window com.android.settings 640
+wait_for 30 "tiled: Browser fits its tile" app_follows_window org.lineageos.jelly 640
+check "Android display keeps the output size" display_size_is 1280x800
+swaymsg 'for_window [app_id=".+"] floating enable' >/dev/null
+swaymsg '[app_id=".+"] floating enable' >/dev/null
+
 step "adb"
 check "adb connect" sh -c 'lapis adb connect | grep -q "connected to"'
 wait_for 30 "adb shell works" sh -c '[ "$(adb -s 192.168.240.112:5555 shell getprop ro.product.device | tr -d "\r")" = "$(lapis prop get ro.product.device)" ]'

@@ -144,7 +144,7 @@ func TestRelay(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go Serve(ctx, l, upPath, isApp)
+	go Serve(ctx, l, upPath, Options{IsApp: isApp})
 
 	client, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: filepath.Join(dir, "proxy"), Net: "unix"})
 	if err != nil {
@@ -193,4 +193,101 @@ func TestRelay(t *testing.T) {
 		t.Fatalf("fd content %q", buf[:n])
 	}
 	unix.Close(fds[0])
+}
+
+func TestResizeFollowsCompositor(t *testing.T) {
+	type call struct {
+		app       string
+		cur, want Size
+	}
+	calls := make(chan call, 4)
+	c := newConn(isApp)
+	c.resize = func(app string, cur, want Size) { calls <- call{app, cur, want} }
+	window(t, c, "android.org.example")
+	c.request(enc(11, 3, int32(0), int32(0), int32(1280), int32(800))) // geometry known
+
+	// A floating WM's placeholder size is ignored.
+	c.event(enc(12, 0, int32(75), int32(50), uint32(0)))
+	// A burst of sizes (interactive resize): only the last one counts.
+	c.event(enc(12, 0, int32(500), int32(600), uint32(0)))
+	c.event(enc(12, 0, int32(640), int32(778), uint32(0)))
+	select {
+	case got := <-calls:
+		if got.app != "android.org.example" || got.cur != (Size{406, 722}) || got.want != (Size{640, 778}) {
+			t.Fatalf("resize call %+v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no resize requested")
+	}
+	select {
+	case got := <-calls:
+		t.Fatalf("unexpected second resize %+v", got)
+	case <-time.After(400 * time.Millisecond):
+	}
+
+	// A size matching the window is not a resize.
+	c.event(enc(12, 0, int32(408), int32(720), uint32(0)))
+	select {
+	case got := <-calls:
+		t.Fatalf("resize for an unchanged size: %+v", got)
+	case <-time.After(400 * time.Millisecond):
+	}
+}
+
+func TestResizeWaitsForGeometry(t *testing.T) {
+	calls := make(chan Size, 2)
+	c := newConn(isApp)
+	c.resize = func(_ string, _, want Size) { calls <- want }
+	window(t, c, "android.org.example")
+	// Tiling WMs send the tile size before the window has geometry.
+	c.event(enc(12, 0, int32(640), int32(778), uint32(0)))
+	time.Sleep(300 * time.Millisecond)
+	select {
+	case w := <-calls:
+		t.Fatalf("resized before geometry was known: %+v", w)
+	default:
+	}
+	c.request(enc(10, 6)) // first commit: geometry becomes known
+	select {
+	case w := <-calls:
+		if w != (Size{640, 778}) {
+			t.Fatalf("want %+v", w)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("pending tile size never applied")
+	}
+}
+
+func TestGeometryEchoIsNotAResize(t *testing.T) {
+	calls := make(chan Size, 2)
+	c := newConn(isApp)
+	c.resize = func(_ string, _, want Size) { calls <- want }
+	// A new window: no layers yet, so the display-sized geometry passes.
+	for _, m := range [][]byte{
+		enc(1, 1, uint32(2)),
+		enc(2, 0, 1, "wl_compositor", 4, uint32(3)),
+		enc(2, 0, 2, "wl_subcompositor", 1, uint32(4)),
+		enc(2, 0, 3, "wp_viewporter", 1, uint32(5)),
+		enc(2, 0, 4, "xdg_wm_base", 2, uint32(6)),
+		enc(3, 0, uint32(10)),
+		enc(6, 2, uint32(11), uint32(10)),
+		enc(11, 1, uint32(12)),
+		enc(12, 3, "android.org.example"),
+	} {
+		c.request(m)
+	}
+	c.request(enc(11, 3, int32(0), int32(0), int32(1280), int32(800)))
+	// The compositor echoes it; then the app's layers appear.
+	c.event(enc(12, 0, int32(1280), int32(800), uint32(0)))
+	c.request(enc(3, 0, uint32(20)))
+	c.request(enc(4, 1, uint32(21), uint32(20), uint32(10)))
+	c.request(enc(5, 1, uint32(22), uint32(20)))
+	c.request(enc(21, 1, int32(424), int32(54)))
+	c.request(enc(22, 2, int32(480), int32(732)))
+	c.request(enc(10, 6))
+	select {
+	case w := <-calls:
+		t.Fatalf("echo of the initial geometry taken as resize to %+v", w)
+	case <-time.After(500 * time.Millisecond):
+	}
 }

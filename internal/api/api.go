@@ -38,6 +38,7 @@ const (
 	OpRestart  = "restart"
 	OpAdbKey   = "adb-key"
 	OpMaximize = "maximize"
+	OpResize   = "resize"
 )
 
 type Request struct {
@@ -46,6 +47,9 @@ type Request struct {
 	Package string   `json:"package,omitempty"`
 	Prop    string   `json:"prop,omitempty"`
 	Key     string   `json:"key,omitempty"`
+	// Resize: the size the app's host window should have.
+	ToWidth  int `json:"to_width,omitempty"`
+	ToHeight int `json:"to_height,omitempty"`
 }
 
 type App struct {

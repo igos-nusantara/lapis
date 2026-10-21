@@ -191,3 +191,13 @@ walk(json.load(sys.stdin))' "$(lapis debug app-id "$1")"
 window_width_below() { w=$(window_size "$1") && [ -n "$w" ] && [ "${w%x*}" -lt "$2" ]; }
 window_width_at_least() { w=$(window_size "$1") && [ -n "$w" ] && [ "${w%x*}" -ge "$2" ]; }
 display_size_is() { [ "$(sudo lapis shell wm size | awk -F': ' '/Physical size/ {print $2}' | tr -d '\r')" = "$1" ]; }
+
+# task_width PKG: width of the newest visible task of PKG.
+task_width() {
+  sudo lapis shell am stack list | grep -E "taskId=[0-9]+: $1/.*visible=true" \
+    | sed -E 's/.*bounds=\[([0-9]+),[0-9]+\]\[([0-9]+),.*/\1 \2/' | tail -1 | awk '{print $2-$1}'
+}
+# near A B TOL: |A-B| <= TOL
+near() { [ -n "$1" ] && [ $(( $1 > $2 ? $1 - $2 : $2 - $1 )) -le "$3" ]; }
+window_width() { w=$(window_size "$1"); echo "${w%x*}"; }
+app_follows_window() { near "$(task_width "$1")" "$2" 12 && near "$(window_width "$1")" "$2" 12; }

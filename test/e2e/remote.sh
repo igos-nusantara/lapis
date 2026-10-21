@@ -12,7 +12,7 @@ ROOTDEV=$(findmnt -no SOURCE / | xargs -I{} sh -c 'readlink -f {}')
 
 step "install (.deb, phase 4)"
 check "apt installs package + systemd-container" sudo apt-get install -y -q "$D"/lapis_*_amd64.deb
-check "version" sh -c 'lapis version | grep -q "lapis 0.4.1"'
+check "version" sh -c 'lapis version | grep -q "lapis 0.5.2"'
 check "control socket enabled" systemctl is-active -q lapis-control.socket
 systemctl --user daemon-reload
 lapis doctor | sed 's/^/    /'
@@ -91,6 +91,23 @@ check "remove libndk" sudo lapis extras remove libndk
 step "BPF maps (no crash on app removal)"
 check "Android has /sys/fs/bpf" sh -c 'sudo lapis shell mount | grep -q "on /sys/fs/bpf type bpf"'
 check "app removal keeps system_server alive" app_removal_no_crash
+
+step "host window drives the app size"
+S=$(lapis debug app-id com.android.settings)
+check "launch Settings" lapis app launch com.android.settings
+sleep 8
+swaymsg "[app_id=\"$S\"] resize set 700 500" >/dev/null
+wait_for 30 "resized window: app follows (700 wide)" app_follows_window com.android.settings 700
+# Tiling: two apps side by side, each gets half the output.
+swaymsg 'for_window [app_id=".+"] floating disable' >/dev/null
+swaymsg "[app_id=\"$S\"] floating disable" >/dev/null
+swaymsg layout splith >/dev/null
+check "launch Browser" lapis app launch org.lineageos.jelly
+wait_for 30 "tiled: Settings fits its tile" app_follows_window com.android.settings 640
+wait_for 30 "tiled: Browser fits its tile" app_follows_window org.lineageos.jelly 640
+check "Android display keeps the output size" display_size_is 1280x800
+swaymsg 'for_window [app_id=".+"] floating enable' >/dev/null
+swaymsg '[app_id=".+"] floating enable' >/dev/null
 
 step "hardening (phase 5)"
 CG=/sys/fs/cgroup/machine.slice/lapis-android.service/payload

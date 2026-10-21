@@ -22,6 +22,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -54,9 +55,42 @@ const (
 // IsAppWindow decides which toplevels are app windows (by app id).
 type IsAppWindow func(appID string) bool
 
+// Size is a width and height in compositor (logical) pixels.
+type Size struct{ W, H int32 }
+
+// ResizeFunc asks Android to resize an app so its window goes from cur to
+// want. It is called outside the proxy's locks.
+type ResizeFunc func(appID string, cur, want Size)
+
+// Options configures the proxy.
+type Options struct {
+	IsApp IsAppWindow
+	// Resize, when set, makes app windows follow the size the compositor
+	// asks for (user resize, tiling, maximize).
+	Resize ResizeFunc
+}
+
+const (
+	// Requests below this are a floating WM's placeholder (e.g. 75x50),
+	// not a real window size.
+	minRequest = 200
+	// A request this close to the current size needs no resize.
+	sizeSlack = 6
+	// Interactive resizes send a stream of sizes; act on the last one.
+	resizeDelay = 200 * time.Millisecond
+	// Compositors answer a new window geometry with a configure of the
+	// same size; such echoes within this window are not resize requests.
+	echoWindow = 1500 * time.Millisecond
+)
+
+type sentSize struct {
+	size Size
+	at   time.Time
+}
+
 // Serve accepts Android's connections on listener and relays each one to
 // the compositor socket at upstream until ctx ends.
-func Serve(ctx context.Context, listener *net.UnixListener, upstream string, isApp IsAppWindow) error {
+func Serve(ctx context.Context, listener *net.UnixListener, upstream string, opts Options) error {
 	go func() {
 		<-ctx.Done()
 		listener.Close()
@@ -75,7 +109,8 @@ func Serve(ctx context.Context, listener *net.UnixListener, upstream string, isA
 			down.Close()
 			continue
 		}
-		c := newConn(isApp)
+		c := newConn(opts.IsApp)
+		c.resize = opts.Resize
 		go c.pump(down, up, c.request)
 		go c.pump(up, down, c.event)
 	}
@@ -89,7 +124,8 @@ type subsurface struct{ surface, parent uint32 }
 
 // conn holds the object state of one client connection.
 type conn struct {
-	isApp IsAppWindow
+	isApp  IsAppWindow
+	resize ResizeFunc
 
 	mu          sync.Mutex
 	iface       map[uint32]string     // client object id -> interface
@@ -102,6 +138,11 @@ type conn struct {
 	toplevelOf  map[uint32]uint32     // xdg_toplevel id -> xdg_surface id
 	appWindow   map[uint32]bool       // xdg_surface id -> is an app window
 	sent        map[uint32]rect       // xdg_surface id -> geometry last sent
+	appIDOf     map[uint32]string     // xdg_surface id -> app id
+	want        map[uint32]Size       // xdg_surface id -> size the compositor asked for
+	pending     map[uint32]bool       // xdg_surface id -> want not yet acted on
+	recent      map[uint32][]sentSize // xdg_surface id -> geometries sent lately
+	timers      map[uint32]*time.Timer
 }
 
 func newConn(isApp IsAppWindow) *conn {
@@ -117,6 +158,11 @@ func newConn(isApp IsAppWindow) *conn {
 		toplevelOf:  map[uint32]uint32{},
 		appWindow:   map[uint32]bool{},
 		sent:        map[uint32]rect{},
+		appIDOf:     map[uint32]string{},
+		want:        map[uint32]Size{},
+		pending:     map[uint32]bool{},
+		recent:      map[uint32][]sentSize{},
+		timers:      map[uint32]*time.Timer{},
 	}
 }
 
@@ -343,7 +389,16 @@ func (c *conn) request(msg []byte) [][]byte {
 			if c.appWindow[id] {
 				if r, ok := c.bounds(c.surfaceOf[id]); ok {
 					c.sent[id] = r
+					c.remember(id, r)
+					c.schedule(id)
 					return [][]byte{message(id, 3, r.x, r.y, r.w, r.h)}
+				}
+				// No layers yet: the display-sized geometry goes out as is;
+				// remember it so its echo is not taken for a resize.
+				a.u32()
+				a.u32()
+				if w, h := a.i32(), a.i32(); a.ok {
+					c.remember(id, rect{0, 0, w, h})
 				}
 			}
 		}
@@ -351,6 +406,7 @@ func (c *conn) request(msg []byte) [][]byte {
 		if op == 3 { // set_app_id
 			if appID := a.str(); a.ok {
 				c.appWindow[c.toplevelOf[id]] = c.isApp(appID)
+				c.appIDOf[c.toplevelOf[id]] = appID
 				if debug {
 					slog.Info("wayland: app id", "toplevel", id, "app_id", appID, "app", c.isApp(appID))
 				}
@@ -361,6 +417,8 @@ func (c *conn) request(msg []byte) [][]byte {
 			if xdg, ok := c.xdgOf[id]; ok && c.appWindow[xdg] {
 				if r, ok := c.bounds(id); ok && r != c.sent[xdg] {
 					c.sent[xdg] = r
+					c.remember(xdg, r)
+					c.schedule(xdg)
 					return [][]byte{message(xdg, 3, r.x, r.y, r.w, r.h), msg}
 				}
 			}
@@ -384,6 +442,14 @@ func (c *conn) event(msg []byte) [][]byte {
 			slog.Info("wayland: configure", "toplevel", id, "w", a.i32(), "h", a.i32(), "app", c.appWindow[c.toplevelOf[id]])
 		}
 		if len(msg) >= headerSize+8 {
+			xdg := c.toplevelOf[id]
+			if a := args(msg); c.appWindow[xdg] && c.resize != nil {
+				if w, h := a.i32(), a.i32(); w >= minRequest && h >= minRequest && !c.isEcho(xdg, Size{w, h}) {
+					c.want[xdg] = Size{w, h}
+					c.pending[xdg] = true
+					c.schedule(xdg)
+				}
+			}
 			// The hwcomposer resizes the whole Android display to any
 			// suggested window size (on its first window that is a
 			// floating WM's minimum, e.g. 75x50). Let Android keep the
@@ -408,6 +474,14 @@ func (c *conn) forget(id uint32) {
 		delete(c.surfaceOf, id)
 		delete(c.appWindow, id)
 		delete(c.sent, id)
+		delete(c.appIDOf, id)
+		delete(c.want, id)
+		delete(c.pending, id)
+		delete(c.recent, id)
+		if t := c.timers[id]; t != nil {
+			t.Stop()
+			delete(c.timers, id)
+		}
 	case ifToplevel:
 		delete(c.toplevelOf, id)
 	case ifSubsurface:
@@ -417,6 +491,66 @@ func (c *conn) forget(id uint32) {
 		delete(c.viewportOf, id)
 	}
 	delete(c.iface, id)
+}
+
+// remember records a geometry sent for xdg. Called with c.mu held.
+func (c *conn) remember(xdg uint32, r rect) {
+	now := time.Now()
+	keep := c.recent[xdg][:0]
+	for _, e := range c.recent[xdg] {
+		if now.Sub(e.at) < echoWindow {
+			keep = append(keep, e)
+		}
+	}
+	c.recent[xdg] = append(keep, sentSize{Size{r.w, r.h}, now})
+}
+
+// isEcho reports whether size matches a geometry sent lately. Called with
+// c.mu held.
+func (c *conn) isEcho(xdg uint32, size Size) bool {
+	for _, e := range c.recent[xdg] {
+		if time.Since(e.at) < echoWindow && abs(e.size.W-size.W) <= sizeSlack && abs(e.size.H-size.H) <= sizeSlack {
+			return true
+		}
+	}
+	return false
+}
+
+// schedule acts on a pending size request once things settle: when the
+// compositor stops sending sizes and the window's geometry is known.
+// Called with c.mu held.
+func (c *conn) schedule(xdg uint32) {
+	if c.resize == nil || !c.pending[xdg] {
+		return
+	}
+	if t := c.timers[xdg]; t != nil {
+		t.Stop()
+	}
+	c.timers[xdg] = time.AfterFunc(resizeDelay, func() { c.fire(xdg) })
+}
+
+func (c *conn) fire(xdg uint32) {
+	c.mu.Lock()
+	cur, known := c.sent[xdg]
+	want, appID := c.want[xdg], c.appIDOf[xdg]
+	if !known || !c.pending[xdg] {
+		// Geometry not known yet: the next commit schedules again.
+		c.mu.Unlock()
+		return
+	}
+	c.pending[xdg] = false
+	c.mu.Unlock()
+	if abs(cur.w-want.W) <= sizeSlack && abs(cur.h-want.H) <= sizeSlack {
+		return
+	}
+	c.resize(appID, Size{cur.w, cur.h}, want)
+}
+
+func abs(v int32) int32 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 // bounds is the union of the layer subsurfaces of a window surface.

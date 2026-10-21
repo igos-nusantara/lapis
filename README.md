@@ -102,18 +102,21 @@ Restart the session to apply.
 
 ### Window size
 
-Each app's host window is as large as the app: in tablet mode that is the
-whole display (apps are maximized), in phone mode the phone-sized app window.
-lapis does this with a small Wayland proxy between Android and your
-compositor; it also keeps the compositor from resizing the Android display.
-Floating desktops (KDE, GNOME) show each app at its size; on tiling window
-managers apps keep their size inside the tile, so a tile smaller than the
-app crops it. To get the images' original behavior (every window as large
-as the display):
+Each app's host window is as large as the app, and the app follows its
+window: resize it, maximize it or let a tiling window manager place it, and
+the Android app relays out to that size. In tablet mode apps open maximized,
+in phone mode at their phone size. lapis does this with a small Wayland
+proxy between Android and your compositor, which also keeps the compositor
+from resizing the whole Android display. To get the images' original
+behavior (every window as large as the display, fixed):
 
 ```sh
 sudo lapis display full    # or: fit (default)
 ```
+
+![A floating window resized to 700x500: Settings relays out to it](docs/screenshots/window-resized.png)
+
+![Two apps tiled side by side, each laid out for its tile](docs/screenshots/tiled-apps.png)
 
 ### Google Play certification
 
