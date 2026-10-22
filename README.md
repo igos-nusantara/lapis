@@ -1,5 +1,7 @@
 # lapis
 
+**English** | [Bahasa Indonesia](README-ID.md)
+
 Android with Google Play on any systemd-based Linux desktop. lapis boots a
 LineageOS-based Android image inside a **systemd-nspawn** container on the host
 kernel. The host side is a **single static Go binary** plus a few systemd units.
@@ -154,7 +156,8 @@ test/e2e/vm.sh start                    # Arch VM (KVM, in podman) for end-to-en
 test/e2e/all.sh                         # every phase, end to end
 ```
 
-See [PLAN.md](PLAN.md) for the design and the test results.
+See [PLAN.md](PLAN.md) for the design and the test results, and
+[AGENTS.md](AGENTS.md) for contributor and agent guidance.
 
 ## License
 
