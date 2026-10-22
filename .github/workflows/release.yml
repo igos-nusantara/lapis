@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: unit tests
+        run: go test ./...
+      - name: build packages
+        run: VERSION="${GITHUB_REF_NAME#v}" scripts/release.sh
+      - name: publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          cat > notes.md <<NOTES
+          ## Install
+
+          | System | Package |
+          |---|---|
+          | Debian / Ubuntu | \`sudo apt install ./lapis_${version}_amd64.deb\` |
+          | Fedora | \`sudo dnf install ./lapis-${version}-1.x86_64.rpm\` |
+          | Arch | \`sudo pacman -U lapis-${version}-1-x86_64.pkg.tar.zst\` |
+          | SteamOS, Fedora Atomic (systemd-sysext) | \`sudo tar -C /var/lib/extensions -xzf lapis-sysext-${version}-amd64.tar.gz && sudo systemd-sysext refresh\` |
+          | Any distro | \`lapis-${version}-linux-amd64.tar.gz\`, then \`sudo ./usr/bin/lapis install\` |
+
+          arm64 builds of every package are attached too. Verify downloads with \`sha256sum -c SHA256SUMS\`.
+          NOTES
+          prerelease=""
+          case "$version" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "lapis $version" --notes-file notes.md --generate-notes $prerelease

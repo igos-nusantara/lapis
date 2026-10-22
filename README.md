@@ -48,7 +48,7 @@ Run `lapis doctor` to check a host.
 Pick one:
 
 ```sh
-# Packages from dist/
+# Packages from a release (https://github.com/igos-nusantara/lapis/releases) or dist/
 sudo apt install ./lapis_*_amd64.deb          # Debian/Ubuntu (pulls systemd-container)
 sudo dnf install ./lapis-*.x86_64.rpm         # Fedora
 sudo pacman -U lapis-*-x86_64.pkg.tar.zst     # Arch
@@ -149,6 +149,7 @@ systemctl --user restart lapis-session
 ```sh
 go test ./...
 scripts/release.sh                      # dist/: tarballs, deb, rpm, Arch, sysext
+git tag v0.6.0 && git push origin v0.6.0  # CI builds and publishes every package
 test/e2e/vm.sh start                    # Arch VM (KVM, in podman) for end-to-end tests
 test/e2e/all.sh                         # every phase, end to end
 ```
