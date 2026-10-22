@@ -124,19 +124,21 @@ sudo lapis display full    # or: fit (default)
 
 lapis hands the host's render node to Android, which renders with Mesa
 (AMD, Intel and other Mesa drivers; NVIDIA's proprietary driver falls back to
-software rendering). SuperTuxKart in 3D at 60 fps:
+software rendering). Games run in their own windows, including those that
+draw into a separate surface (SDL and similar engines): lapis preloads a small
+library into Android's display service that ties such surfaces to their app's
+window. SuperTuxKart in 3D at 60 fps:
 
-![SuperTuxKart racing on the GPU](docs/screenshots/gpu-supertuxkart.png)
+![SuperTuxKart racing in its own window on the GPU](docs/screenshots/gpu-supertuxkart.png)
 
 ![Mindustry in its own window](docs/screenshots/gpu-mindustry.png)
 
-A few games (for example SuperTuxKart) draw into a surface that the Android
-image does not tie to their window, so their own window stays black. Open them
-in the full Android desktop instead:
+### Everyday apps
 
-```sh
-lapis show-full-ui     # then start the game from the Android launcher
-```
+Shopping and other ARM-only apps run with ARM translation (below). Shopee
+(portrait, in a phone-sized window) and Tokopedia (tablet layout) side by side:
+
+![Shopee and Tokopedia as their own windows](docs/screenshots/apps-shopee-tokopedia.png)
 
 ### Google Play certification
 
@@ -150,9 +152,12 @@ then clear the Play Store's data or restart the session.
 ### ARM-only apps
 
 ```sh
-sudo lapis extras install libndk     # AMD CPUs (or libhoudini on Intel)
+sudo lapis extras install libhoudini   # runs the most apps, on Intel and AMD
 systemctl --user restart lapis-session
 ```
+
+`libndk` is the alternative (faster on AMD), but some apps abort under it;
+Tokopedia, for example, only starts with `libhoudini`. Install one of the two.
 
 ### Other commands
 

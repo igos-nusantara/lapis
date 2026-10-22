@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -40,6 +41,10 @@ func thawIfFrozen() bool {
 
 // Launch opens an app window, over binder when possible.
 func Launch(pkg string) error {
+	// Android's platform service accepts any string and reports success.
+	if !api.ValidPackage(pkg) {
+		return fmt.Errorf("invalid package name %q", pkg)
+	}
 	thawIfFrozen()
 	if c, err := OpenBinder(); err == nil {
 		if p, err := Platform(c, 5*time.Second); err == nil {

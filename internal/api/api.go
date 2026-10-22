@@ -2,6 +2,8 @@
 // lapis client and the root control service.
 package api
 
+import "regexp"
+
 // Session describes the desktop session the container is attached to.
 type Session struct {
 	UserName         string `json:"user_name"`
@@ -65,3 +67,8 @@ type Response struct {
 	Value   string   `json:"value,omitempty"`
 	Apps    []App    `json:"apps,omitempty"`
 }
+
+var pkgName = regexp.MustCompile(`^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)+$`)
+
+// ValidPackage reports whether s is a well-formed Android package name.
+func ValidPackage(s string) bool { return pkgName.MatchString(s) }

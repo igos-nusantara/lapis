@@ -6,7 +6,7 @@ DATA=~/.local/share/lapis/data
 
 step "setup"
 session_stop 2>/dev/null; sleep 2
-sudo lapis extras remove libndk >/dev/null 2>&1
+for t in libndk libhoudini; do sudo lapis extras remove $t >/dev/null 2>&1; done
 session_start
 wait_for 300 "Android booted" booted
 

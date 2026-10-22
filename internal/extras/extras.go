@@ -63,7 +63,7 @@ const (
 var Catalog = []Extra{
 	{
 		ID:          "libndk",
-		Description: "ARM translation from ChromeOS (recommended on AMD CPUs)",
+		Description: "ARM translation from ChromeOS (faster on AMD, fewer apps)",
 		sources: map[string]source{
 			"11": {ndkRepo + "9324a8914b649b885dad6f2bfd14a67e5d1520bf.zip", "c9572672d1045594448068079b34c350",
 				"vendor_google_proprietary_ndk_translation-prebuilt-9324a8914b649b885dad6f2bfd14a67e5d1520bf/prebuilts/"},
@@ -79,7 +79,7 @@ var Catalog = []Extra{
 	},
 	{
 		ID:          "libhoudini",
-		Description: "ARM translation from Intel (recommended on Intel CPUs)",
+		Description: "ARM translation from Intel (runs the most apps)",
 		sources: map[string]source{
 			"11": {houdiniRepo + "81f2a51ef539a35aead396ab7fce2adf89f46e88.zip", "fbff756612b4144797fbc99eadcb6653",
 				"vendor_intel_proprietary_houdini-81f2a51ef539a35aead396ab7fce2adf89f46e88/prebuilts/"},

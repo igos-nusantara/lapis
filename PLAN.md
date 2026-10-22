@@ -74,6 +74,8 @@ internal/seccomp       BPF filter, verified in-kernel by a test
 internal/netsvc        nftables, DHCP, DNS, Docker firewall integration
 internal/wlproxy       Wayland proxy that fits app windows to their apps
 internal/rootfs        loop mounts + overlays
+internal/hwchook       composer hook: liblapis_hwc.so (freestanding C, prebuilt for
+                       x86_64/aarch64 by build.sh) + rc override that preloads it
 internal/images        OTA channels, resumable download with mirror failover, sha256, lock
 internal/extras        ARM translation installer (overlay + properties)
 internal/props, gpu, drivers, config, paths, sysutil, units, doctor
@@ -109,16 +111,44 @@ The VM gets a virtio-gpu whose virgl renderer runs on the development host's GPU
 (Steam Deck, AMD Van Gogh / radeonsi), and sway uses its GLES renderer. Android
 picks the render node, minigbm and Mesa: SurfaceFlinger reports
 `GLES: Mesa, virgl (AMD Custom GPU 0405 (radeonsi, vangogh, …)), OpenGL ES 3.2`.
-11 checks pass: hardware GLES, a GL game (Mindustry) installs, opens its own host
-window and renders at ≥ 30 fps (61 fps measured, vsync-bound). SuperTuxKart (3D,
-GLES 3) races at 61 fps in the full-UI window
+17 checks pass: hardware GLES; a GL game (Mindustry) installs, opens its own host
+window and renders at ≥ 30 fps (61 fps measured, vsync-bound); SuperTuxKart (3D,
+GLES 3, SDL) draws into its own per-app window, where it races at 61 fps
 (`docs/screenshots/gpu-supertuxkart.png`, `gpu-mindustry.png`).
 
-Finding: in per-app windows the image's hwcomposer only gives a window to layers
-named `TID:<task>#…`. Some apps (SuperTuxKart's SDL SurfaceView) get a layer name
-without that prefix, so the layer is dropped and the window shows only its
-decoration. Those apps work in the full-UI window. Fixing it needs a change to the
-image's hwcomposer or framework, not to lapis.
+Finding (fixed): in per-app windows the images' hwcomposer only gives a window to
+layers named `TID:<task>#…`. The framework adds that prefix to a SurfaceView only
+when the view's context is an Activity; SDL and similar engines use the
+Application context, so their game layer (`<pkg>/<activity>(BLAST)#n`) was dropped
+and the window showed only its decoration. lapis now preloads `liblapis_hwc.so`
+into the composer service. It interposes the hwcomposer's layer-name parser
+(an exported function called through the PLT), remembers the task of each
+`TID:<task>#<pkg>/<activity>` window layer and gives untagged layers of the same
+activity (or package) that prefix. The library is freestanding C (no libc, only
+`dladdr`/`dlopen`/`dlsym`), finds the original function through `dladdr` on its
+caller, and is enabled by an rc file in `/system/etc/init` that redefines the
+composer service with `override` + `setenv LD_PRELOAD` (the images already override
+the vendor definition there, and init reads that directory after `/vendor`). The
+check waits for the untagged layer to exist before testing the window's pixels;
+without the hook the same window is a single black colour.
+
+### Third-party apps (`phase-apps.sh`)
+Installs every `.apk`/`.xapk` placed in `~/apps` in the VM (nothing is downloaded by
+the suite), launches each, and checks for a host window and a live process 30 s
+later. 13 checks pass with **Shopee 3.83.36** (arm64 only) and **Tokopedia 45.0.6**
+(armeabi-v7a only) under libhoudini (`docs/screenshots/apps-shopee-tokopedia.png`).
+Shopee opens as a portrait, phone-sized window; Tokopedia maximized in its tablet
+layout. The test APKs came from APKPure; their signing certificates were checked
+(Garena Online for Shopee, Tokopedia for Tokopedia, same certificate on every split).
+
+Findings:
+- Under libndk Tokopedia's native code aborts the process
+  (`ndk_translation: Unknown ARM sa_restorer in guest sigaction!`); under libhoudini
+  it runs. libhoudini is now the documented default; libndk stays available.
+- `lapis shell` lacked `EXTERNAL_STORAGE` and other `init.environ.rc` variables, so
+  shell tools such as `uiautomator dump` crashed. Fixed.
+- `lapis app launch ""` reported success: Android's platform service accepts any
+  string. The package name is now validated before the binder call too.
 
 ### End-to-end on a shared server
 `test/e2e/remote.sh` (run with `E2E_COMPOSITOR=docker`) covers the phases that are
@@ -204,8 +234,7 @@ tablet mode).
 - **SteamOS:** the kernel has no binder (§6). lapis itself installs cleanly as a
   systemd-sysext.
 - Bare-metal runs with an AMD/Intel GPU (GPU tests so far: virgl on an AMD host).
-- Games whose SurfaceView layer lacks the task prefix stay black in per-app windows
-  (§3, GPU); use the full-UI window for them.
+- The composer hook is built for x86_64 and aarch64 but only exercised on x86_64.
 - Notifications posted by the Android shell are not forwarded by Android itself
   (app notifications are).
 - Binder devices are world-accessible, so another local user could call the

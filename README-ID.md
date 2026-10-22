@@ -128,19 +128,22 @@ sudo lapis display full    # atau: fit (default)
 
 lapis memberikan render node host ke Android, yang merender dengan Mesa
 (AMD, Intel, dan driver Mesa lain; driver proprietary NVIDIA kembali ke
-software rendering). SuperTuxKart 3D pada 60 fps:
+software rendering). Game berjalan di window masing-masing, termasuk game
+yang menggambar ke surface terpisah (SDL dan engine sejenis): lapis memuat
+library kecil ke layanan display Android yang mengaitkan surface tersebut ke
+window aplikasinya. SuperTuxKart 3D pada 60 fps:
 
-![SuperTuxKart berjalan di GPU](docs/screenshots/gpu-supertuxkart.png)
+![SuperTuxKart balapan di window sendiri dengan GPU](docs/screenshots/gpu-supertuxkart.png)
 
 ![Mindustry dalam window sendiri](docs/screenshots/gpu-mindustry.png)
 
-Beberapa game (misalnya SuperTuxKart) menggambar ke surface yang tidak
-dikaitkan oleh image Android ke window-nya, sehingga window-nya tetap hitam.
-Buka game tersebut lewat desktop Android penuh:
+### Aplikasi sehari-hari
 
-```sh
-lapis show-full-ui     # lalu jalankan game dari launcher Android
-```
+Aplikasi belanja dan aplikasi khusus ARM lainnya berjalan dengan translasi
+ARM (lihat di bawah). Shopee (portrait, window seukuran ponsel) dan Tokopedia
+(tata letak tablet) berdampingan:
+
+![Shopee dan Tokopedia dalam window masing-masing](docs/screenshots/apps-shopee-tokopedia.png)
 
 ### Sertifikasi Google Play
 
@@ -154,9 +157,13 @@ lalu hapus data Play Store atau restart sesi.
 ### Aplikasi khusus ARM
 
 ```sh
-sudo lapis extras install libndk     # CPU AMD (atau libhoudini untuk Intel)
+sudo lapis extras install libhoudini   # menjalankan aplikasi terbanyak, di Intel dan AMD
 systemctl --user restart lapis-session
 ```
+
+`libndk` adalah alternatifnya (lebih cepat di AMD), tetapi beberapa aplikasi
+berhenti paksa dengannya; Tokopedia misalnya hanya berjalan dengan
+`libhoudini`. Pasang salah satu saja.
 
 ### Perintah lain
 

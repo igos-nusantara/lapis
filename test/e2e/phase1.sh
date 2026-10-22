@@ -23,6 +23,8 @@ check "DNS + internet" adroid ping -c 1 -W 5 dns.google
 
 step "display and audio"
 check "composer HAL running (windows below prove Wayland)" sh -c 'sudo lapis shell ps -A | grep -q graphics.composer'
+check "composer hook preloaded" sh -c 'sudo lapis shell sh -c "grep -q liblapis_hwc /proc/\$(pidof android.hardware.graphics.composer@2.1-service)/maps"'
+check "shell has Android environment" sh -c 'sudo lapis shell sh -c "echo \$EXTERNAL_STORAGE" | grep -q /sdcard'
 check "pulse socket inside" adroid ls /run/xdg/pulse/native
 
 step "apps"

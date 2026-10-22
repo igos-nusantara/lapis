@@ -29,6 +29,10 @@ var androidEnv = []string{
 	"ANDROID_I18N_ROOT=/apex/com.android.i18n",
 	"ANDROID_TZDATA_ROOT=/apex/com.android.tzdata",
 	"ANDROID_RUNTIME_ROOT=/apex/com.android.runtime",
+	"ANDROID_ASSETS=/system/app",
+	"EXTERNAL_STORAGE=/sdcard", // uiautomator and other shell tools need it
+	"ASEC_MOUNTPOINT=/mnt/asec",
+	"DOWNLOAD_CACHE=/data/cache",
 }
 
 // Env returns the environment for Android commands, adding the

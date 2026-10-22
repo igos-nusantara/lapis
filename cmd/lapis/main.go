@@ -63,7 +63,7 @@ Daily use (desktop user):
 Extras and tools:
   lapis adb connect                authorize this user's adb key and connect
   sudo lapis extras list | install <id> | remove <id>
-                                      ARM translation: libndk (AMD) or libhoudini (Intel)
+                                      ARM translation: libhoudini (most apps) or libndk
 
 Debugging (root):
   lapis shell [command...]         shell inside Android

@@ -12,6 +12,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/igos-nusantara/lapis/internal/compat"
+	"github.com/igos-nusantara/lapis/internal/hwchook"
 	"github.com/igos-nusantara/lapis/internal/images"
 	"github.com/igos-nusantara/lapis/internal/paths"
 	"github.com/igos-nusantara/lapis/internal/sysutil"
@@ -46,10 +47,21 @@ func Mount(imagesDir string) error {
 	if err := mountImage(filepath.Join(imagesDir, "system.img"), paths.RootfsDir); err != nil {
 		return err
 	}
+	// The composer hook is derived from both images and written into the
+	// overlay tree before the overlays are mounted on top of it.
+	vendor := filepath.Join(paths.RootfsDir, "vendor")
+	if err := mountImage(filepath.Join(imagesDir, "vendor.img"), vendor); err != nil {
+		return err
+	}
+	if err := hwchook.Install(paths.RootfsDir, paths.OverlayDir); err != nil {
+		return fmt.Errorf("composer hook: %w", err)
+	}
+	if err := unix.Unmount(vendor, 0); err != nil {
+		return fmt.Errorf("unmount %s: %w", vendor, err)
+	}
 	if err := overlay(paths.RootfsDir, []string{paths.OverlayDir, paths.RootfsDir}, "system"); err != nil {
 		return err
 	}
-	vendor := filepath.Join(paths.RootfsDir, "vendor")
 	if err := os.MkdirAll(vendor, 0o755); err != nil {
 		return err
 	}

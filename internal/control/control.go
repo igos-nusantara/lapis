@@ -97,7 +97,6 @@ func peerCred(c *net.UnixConn) (*unix.Ucred, error) {
 
 var errFrozen = errors.New("Android is suspended (frozen); open an app or run `lapis unfreeze`")
 
-var pkgName = regexp.MustCompile(`^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)+$`)
 var propName = regexp.MustCompile(`^[A-Za-z0-9_.\-:@]+$`)
 
 func handle(cred *unix.Ucred, req api.Request) (*api.Response, error) {
@@ -155,17 +154,17 @@ func handle(cred *unix.Ucred, req api.Request) (*api.Response, error) {
 		apps, err := launcherApps(s)
 		return &api.Response{Apps: apps}, err
 	case api.OpLaunch:
-		if !pkgName.MatchString(req.Package) {
+		if !api.ValidPackage(req.Package) {
 			return nil, errors.New("invalid package name")
 		}
 		return &api.Response{}, launch(s, req.Package)
 	case api.OpMaximize:
-		if !pkgName.MatchString(req.Package) {
+		if !api.ValidPackage(req.Package) {
 			return nil, errors.New("invalid package name")
 		}
 		return &api.Response{}, maximizeIfConfigured(s, req.Package)
 	case api.OpResize:
-		if !pkgName.MatchString(req.Package) {
+		if !api.ValidPackage(req.Package) {
 			return nil, errors.New("invalid package name")
 		}
 		return &api.Response{}, resizeTask(s, req)
@@ -274,7 +273,7 @@ func launcherApps(s *api.Session) ([]api.App, error) {
 	for _, line := range strings.Split(out, "\n") {
 		comp := strings.TrimSpace(line)
 		pkg, act, ok := strings.Cut(comp, "/")
-		if !ok || !pkgName.MatchString(pkg) || seen[pkg] {
+		if !ok || !api.ValidPackage(pkg) || seen[pkg] {
 			continue
 		}
 		seen[pkg] = true

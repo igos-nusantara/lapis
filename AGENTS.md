@@ -24,6 +24,7 @@ and util-linux.
 | `internal/binder/`, `internal/hostsvc/` | pure-Go binder (AIDL) client/server and the host services Android calls |
 | `internal/netsvc/` | nftables NAT over netlink, DHCP and DNS |
 | `internal/seccomp/` | raw BPF seccomp filter |
+| `internal/hwchook/` | composer hook: `hook.c` (freestanding C) built into `liblapis_hwc-*.so` by `build.sh` (`go generate ./internal/hwchook`; uses clang+lld, or podman when missing); commit the rebuilt `.so` files |
 | `internal/units/` | systemd unit templates (`lapis-android`, `-binder`, `-net`, `-control`, `lapis-session`) |
 | `internal/config/`, `internal/paths/`, `internal/props/` | `/var/lib/lapis/lapis.toml`, well-known paths, Android property file |
 | `internal/images/`, `internal/rootfs/`, `internal/extras/` | image download, rootfs assembly, libndk/libhoudini |
@@ -70,6 +71,10 @@ GPU: `E2E_GPU=virgl test/e2e/vm.sh start` gives the VM a virtio-gpu backed
 by the host's render node (rebuild the `lapis-vmhost` image from
 `test/e2e/Containerfile` first), then `test/e2e/run.sh phase-gpu`.
 
+Third-party apps: copy `.apk`/`.xapk` files into `~/apps` in the VM, then
+`test/e2e/run.sh phase-apps` (installs libhoudini unless `E2E_TRANSLATION` says
+otherwise, and removes it again afterwards). The suite downloads nothing.
+
 Phase 3 suspends the guest, so `all.sh` restarts the VM after it. Phase 4
 replaces the dev install with packages and runs last.
 
@@ -89,6 +94,8 @@ Helpers live in `test/e2e/lib.sh` (`step`, `check`, `wait_for`,
 - **Naming:** the project is *lapis*. Protocol names that the Android images
   require stay in `internal/compat` and nowhere else. The upstream project
   that inspired lapis is mentioned only in the README credit sections.
+- The only non-Go code is `internal/hwchook/hook.c`, which runs inside Android;
+  it is embedded as prebuilt `.so` files, so the Go build stays cgo-free.
 - Keep the binary static (`CGO_ENABLED=0`) and dependency-light; prefer the
   standard library and `golang.org/x/sys`. Do not shell out to tools the host
   may lack (iptables, dnsmasq, lxc, python).
