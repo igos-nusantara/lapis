@@ -1,4 +1,4 @@
-// Package hwchook installs liblapis_hwc.so (see hook.c) into the overlay
+// Package hwchook installs liblapis_hwc.so (see csrc/hook.c) into the overlay
 // and preloads it into Android's composer service, so games whose
 // SurfaceView layer lacks the task prefix still get their own host window.
 package hwchook

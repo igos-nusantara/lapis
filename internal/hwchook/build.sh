@@ -1,5 +1,5 @@
 #!/bin/sh
-# Rebuilds liblapis_hwc-<arch>.so from hook.c with clang and lld (run via
+# Rebuilds liblapis_hwc-<arch>.so from csrc/hook.c with clang and lld (run via
 # `go generate ./internal/hwchook`). No NDK is needed: the library only
 # imports dladdr/dlopen/dlsym, which link against a stub libdl.so here and
 # resolve to Android's libdl at run time.
@@ -19,5 +19,5 @@ for arch in x86_64 aarch64; do
   clang --target=$target -O2 -fPIC -shared -nostdlib -ffreestanding -fno-builtin \
     -fno-stack-protector -fvisibility=default -fuse-ld=lld \
     -Wl,-soname,liblapis_hwc.so -Wl,-z,now -Wl,-z,relro -Wl,--hash-style=both \
-    -Wl,--build-id=none -L"$tmp" -ldl -o liblapis_hwc-$arch.so hook.c
+    -Wl,--build-id=none -L"$tmp" -ldl -o liblapis_hwc-$arch.so csrc/hook.c
 done
