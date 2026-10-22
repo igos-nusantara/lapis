@@ -120,6 +120,24 @@ sudo lapis display full    # or: fit (default)
 
 ![Two apps tiled side by side, each laid out for its tile](docs/screenshots/tiled-apps.png)
 
+### GPU and games
+
+lapis hands the host's render node to Android, which renders with Mesa
+(AMD, Intel and other Mesa drivers; NVIDIA's proprietary driver falls back to
+software rendering). SuperTuxKart in 3D at 60 fps:
+
+![SuperTuxKart racing on the GPU](docs/screenshots/gpu-supertuxkart.png)
+
+![Mindustry in its own window](docs/screenshots/gpu-mindustry.png)
+
+A few games (for example SuperTuxKart) draw into a surface that the Android
+image does not tie to their window, so their own window stays black. Open them
+in the full Android desktop instead:
+
+```sh
+lapis show-full-ui     # then start the game from the Android launcher
+```
+
 ### Google Play certification
 
 ```sh

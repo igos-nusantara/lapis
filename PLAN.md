@@ -104,6 +104,22 @@ Rust binder driver). A headless **sway** session stands in for the desktop.
 | 4 Packaging | `phase4.sh` | 26 | Checksums; deb/rpm contents; Arch package and systemd-sysext each install, boot Android, open a window, uninstall cleanly |
 | 5 Hardening | `phase5.sh` | 26 | Unit sandboxing; container under seccomp, without SYS_MODULE/SYS_RAWIO; device policy blocks host disks; attached commands confined; control service rejects uid spoofing, foreign paths, injection, garbage |
 
+### GPU (`phase-gpu.sh`, VM started with `E2E_GPU=virgl`)
+The VM gets a virtio-gpu whose virgl renderer runs on the development host's GPU
+(Steam Deck, AMD Van Gogh / radeonsi), and sway uses its GLES renderer. Android
+picks the render node, minigbm and Mesa: SurfaceFlinger reports
+`GLES: Mesa, virgl (AMD Custom GPU 0405 (radeonsi, vangogh, …)), OpenGL ES 3.2`.
+11 checks pass: hardware GLES, a GL game (Mindustry) installs, opens its own host
+window and renders at ≥ 30 fps (61 fps measured, vsync-bound). SuperTuxKart (3D,
+GLES 3) races at 61 fps in the full-UI window
+(`docs/screenshots/gpu-supertuxkart.png`, `gpu-mindustry.png`).
+
+Finding: in per-app windows the image's hwcomposer only gives a window to layers
+named `TID:<task>#…`. Some apps (SuperTuxKart's SDL SurfaceView) get a layer name
+without that prefix, so the layer is dropped and the window shows only its
+decoration. Those apps work in the full-UI window. Fixing it needs a change to the
+image's hwcomposer or framework, not to lapis.
+
 ### End-to-end on a shared server
 `test/e2e/remote.sh` (run with `E2E_COMPOSITOR=docker`) covers the phases that are
 safe on a machine other people use (no suspend, no new users), installing from the
@@ -187,7 +203,9 @@ tablet mode).
 
 - **SteamOS:** the kernel has no binder (§6). lapis itself installs cleanly as a
   systemd-sysext.
-- Real-hardware runs with an AMD/Intel GPU (tests so far used software rendering).
+- Bare-metal runs with an AMD/Intel GPU (GPU tests so far: virgl on an AMD host).
+- Games whose SurfaceView layer lacks the task prefix stay black in per-app windows
+  (§3, GPU); use the full-UI window for them.
 - Notifications posted by the Android shell are not forwarded by Android itself
   (app notifications are).
 - Binder devices are world-accessible, so another local user could call the

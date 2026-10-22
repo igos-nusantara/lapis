@@ -42,8 +42,11 @@ ensure_compositor() {
     mkdir -p ~/.config/sway
     # Floating windows, like the desktops lapis targets (KDE, GNOME).
     printf 'xwayland disable\noutput HEADLESS-1 resolution 1280x800\nfor_window [app_id=".+"] floating enable\n' > ~/.config/sway/config
+    # With a GPU (E2E_GPU=virgl) sway must import Android's GPU buffers.
+    renderer=pixman
+    ls /dev/dri/renderD* >/dev/null 2>&1 && renderer=gles2
     systemd-run --user --unit=sway -E XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" \
-      -E WLR_BACKENDS=headless -E WLR_LIBINPUT_NO_DEVICES=1 -E WLR_RENDERER=pixman sway >/dev/null
+      -E WLR_BACKENDS=headless -E WLR_LIBINPUT_NO_DEVICES=1 -E WLR_RENDERER=$renderer sway >/dev/null
   fi
   # sway picks the first free wayland-N socket; find the one it owns.
   for _ in $(seq 20); do

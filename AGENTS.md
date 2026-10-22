@@ -66,6 +66,10 @@ test/e2e/all.sh               # every phase; logs in test/e2e/work/phaseN.log
 test/e2e/vm.sh stop
 ```
 
+GPU: `E2E_GPU=virgl test/e2e/vm.sh start` gives the VM a virtio-gpu backed
+by the host's render node (rebuild the `lapis-vmhost` image from
+`test/e2e/Containerfile` first), then `test/e2e/run.sh phase-gpu`.
+
 Phase 3 suspends the guest, so `all.sh` restarts the VM after it. Phase 4
 replaces the dev install with packages and runs last.
 

@@ -1,4 +1,8 @@
 # Throwaway VM host: runs QEMU/KVM so lapis can be tested on a kernel
-# with binder (Arch linux-zen) without touching the real host.
+# with binder (Arch linux-zen) without touching the real host. The GL
+# display modules and Mesa back the optional virtio-gpu (virgl) device.
 FROM docker.io/library/archlinux:latest
-RUN pacman -Syu --noconfirm qemu-base cdrtools openssh && pacman -Scc --noconfirm
+RUN pacman -Syu --noconfirm qemu-base cdrtools openssh mesa \
+      qemu-hw-display-virtio-gpu qemu-hw-display-virtio-gpu-gl \
+      qemu-hw-display-virtio-gpu-pci qemu-hw-display-virtio-gpu-pci-gl \
+      qemu-ui-egl-headless qemu-ui-opengl && pacman -Scc --noconfirm

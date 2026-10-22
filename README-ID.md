@@ -124,6 +124,24 @@ sudo lapis display full    # atau: fit (default)
 
 ![Dua aplikasi berdampingan (tiling), masing-masing menyesuaikan tile-nya](docs/screenshots/tiled-apps.png)
 
+### GPU dan game
+
+lapis memberikan render node host ke Android, yang merender dengan Mesa
+(AMD, Intel, dan driver Mesa lain; driver proprietary NVIDIA kembali ke
+software rendering). SuperTuxKart 3D pada 60 fps:
+
+![SuperTuxKart berjalan di GPU](docs/screenshots/gpu-supertuxkart.png)
+
+![Mindustry dalam window sendiri](docs/screenshots/gpu-mindustry.png)
+
+Beberapa game (misalnya SuperTuxKart) menggambar ke surface yang tidak
+dikaitkan oleh image Android ke window-nya, sehingga window-nya tetap hitam.
+Buka game tersebut lewat desktop Android penuh:
+
+```sh
+lapis show-full-ui     # lalu jalankan game dari launcher Android
+```
+
 ### Sertifikasi Google Play
 
 ```sh
