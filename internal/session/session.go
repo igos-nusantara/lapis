@@ -89,11 +89,24 @@ func Run(ctx context.Context, self string) error {
 	if err != nil {
 		return err
 	}
+	proxied := true
 	if err := startWaylandProxy(ctx, s); err != nil {
 		slog.Warn("window fitting disabled", "err", err)
+		proxied = false
 	}
+	before, _ := control.Call(api.Request{Op: api.OpStatus})
 	if _, err := control.Call(api.Request{Op: api.OpStart, Session: s}); err != nil {
 		return err
+	}
+	// The container binds the session's Wayland socket when it starts. A
+	// container left running by an earlier session holds that session's
+	// proxy socket, which this session has just replaced, so Android's
+	// display could never connect again: restart it onto the new one.
+	if proxied && before != nil && before.State != api.StateStopped {
+		slog.Info("restarting the Android container left by an earlier session")
+		if _, err := control.Call(api.Request{Op: api.OpRestart}); err != nil {
+			return err
+		}
 	}
 	slog.Info("Android container started, waiting for boot")
 
@@ -124,10 +137,23 @@ func Run(ctx context.Context, self string) error {
 	// container is frozen; it runs beside the main loop so stopping the
 	// session never waits on it.
 	busy := make(chan struct{}, 1)
+	unhealthy := 0 // consecutive periodic runs Android did not answer
 	periodic := func(tick int) {
 		defer func() { <-busy }()
 		if err := pruner.Prune(s); err != nil {
 			slog.Warn("pruning desktop entries failed", "err", err)
+			// Android's own watchdog restarts a stuck system_server within a
+			// minute or two; when that does not bring it back, restart the
+			// whole container.
+			if unhealthy++; unhealthy >= unhealthyLimit {
+				slog.Warn("Android has not answered for a while; restarting the container")
+				unhealthy = 0
+				if _, err := control.Call(api.Request{Op: api.OpRestart}); err != nil {
+					slog.Warn("restarting Android failed", "err", err)
+				}
+			}
+		} else {
+			unhealthy = 0
 		}
 		if conn == nil {
 			return
@@ -195,6 +221,10 @@ func waitBoot(ctx context.Context) bool {
 	slog.Warn("Android did not finish booting within 3 minutes")
 	return false
 }
+
+// unhealthyLimit is how many periodic runs (15 s apart) Android may fail to
+// answer before the session restarts the container: 3 minutes.
+const unhealthyLimit = 12
 
 // proxySocket is the Wayland socket Android connects to when windows are
 // fitted to their apps.
