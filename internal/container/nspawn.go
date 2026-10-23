@@ -163,6 +163,15 @@ const ShimPath = "/lapis-init"
 // init creates them itself and aborts when mknod fails with EEXIST.
 var initCreatedNodes = []string{"/dev/random", "/dev/urandom"}
 
+// The images' hwcomposer passes Wayland input to InputFlinger through FIFOs
+// in /dev/input, and creates that directory itself, as the system user, once
+// it is connected to the compositor. nspawn's /dev is root-owned 0755, so the
+// mkdir failed and every click and key was dropped ("Failed to open pipe to
+// InputFlinger"). /dev is opened to the system group instead. /dev/input must
+// not be created here: init's keychord watcher would see the FIFOs appear and
+// block opening them before InputFlinger exists, hanging the boot.
+const aidSystem = 1000
+
 // InitShim runs as the container's PID 1 and replaces itself with /init.
 func InitShim() error {
 	if os.Getpid() != 1 {
@@ -172,6 +181,12 @@ func InitShim() error {
 		if err := os.Remove(n); err != nil && !os.IsNotExist(err) {
 			return err
 		}
+	}
+	if err := os.Chown("/dev", 0, aidSystem); err != nil {
+		return err
+	}
+	if err := os.Chmod("/dev", 0o775); err != nil {
+		return err
 	}
 	return syscall.Exec("/init", []string{"/init"}, os.Environ())
 }
