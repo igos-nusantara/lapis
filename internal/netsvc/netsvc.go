@@ -60,6 +60,10 @@ func Serve(ctx context.Context) error {
 		slog.Info("Docker firewall detected; allowed forwarding for " + HostIf + " in DOCKER-USER")
 		defer dockerForward(false)
 	}
+	if firewalldTrust(true) {
+		slog.Info("firewalld detected; " + HostIf + " is in the trusted zone")
+		defer firewalldTrust(false)
+	}
 	sysutil.Notify("READY=1")
 
 	// The veth is created and destroyed with the container, and again on
@@ -303,6 +307,24 @@ func teardownNft() error {
 		return nil
 	}
 	return c.Flush()
+}
+
+// firewalldTrust adds (or removes) the container link to firewalld's trusted
+// zone, at runtime only. Otherwise the default zone (public on Fedora, RHEL
+// and AlmaLinux) rejects the container's DHCP requests and forwarded
+// traffic, and Android has no network. It reports whether firewalld runs.
+func firewalldTrust(add bool) bool {
+	if sysutil.Run("firewall-cmd", "--state") != nil {
+		return false
+	}
+	op := "--remove-interface=" + HostIf
+	if add {
+		op = "--add-interface=" + HostIf
+	}
+	if err := sysutil.Run("firewall-cmd", "--zone=trusted", op); err != nil && add {
+		slog.Warn("firewalld: "+HostIf+" not added to the trusted zone", "err", err)
+	}
+	return true
 }
 
 // dockerForwardRules let container traffic pass Docker's FORWARD chain,
