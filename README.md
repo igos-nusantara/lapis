@@ -120,6 +120,17 @@ sudo lapis display full    # or: fit (default)
 
 ![Two apps tiled side by side, each laid out for its tile](docs/screenshots/tiled-apps.png)
 
+### On-screen keyboard
+
+Android sees the desktop's keyboard as a hardware keyboard, so lapis hides
+Android's on-screen keyboard and you type with the host keyboard. To show
+it anyway, set this in `/var/lib/lapis/lapis.toml` and run `lapis restart`:
+
+```toml
+[input]
+soft_keyboard = true
+```
+
 ### GPU and games
 
 lapis hands the host's render node to Android, which renders with Mesa

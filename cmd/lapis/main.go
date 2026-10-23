@@ -49,6 +49,7 @@ Setup (root):
 Daily use (desktop user):
   lapis session start              start Android for this session (foreground)
   lapis session stop
+  lapis restart                    restart Android (the lapis-session unit)
   lapis status
   lapis app list
   lapis app launch <package>
@@ -125,7 +126,7 @@ func run(cmd string, args []string) error {
 
 	case "session":
 		if len(args) != 1 {
-			return errors.New("usage: lapis session start|stop")
+			return errors.New("usage: lapis session start|stop|restart")
 		}
 		switch args[0] {
 		case "start":
@@ -135,8 +136,13 @@ func run(cmd string, args []string) error {
 		case "stop":
 			_, err := control.Call(api.Request{Op: api.OpStop})
 			return err
+		case "restart":
+			return sysutil.Run("systemctl", "--user", "restart", session.SessionUnit)
 		}
 		return fmt.Errorf("unknown session command %q", args[0])
+
+	case "restart":
+		return sysutil.Run("systemctl", "--user", "restart", session.SessionUnit)
 
 	case "status":
 		resp, err := control.Call(api.Request{Op: api.OpStatus})

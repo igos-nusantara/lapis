@@ -124,6 +124,18 @@ sudo lapis display full    # atau: fit (default)
 
 ![Dua aplikasi berdampingan (tiling), masing-masing menyesuaikan tile-nya](docs/screenshots/tiled-apps.png)
 
+### Keyboard layar
+
+Android menganggap keyboard desktop sebagai keyboard fisik, jadi lapis
+menyembunyikan keyboard layar Android dan Anda mengetik dengan keyboard
+host. Untuk tetap menampilkannya, atur ini di `/var/lib/lapis/lapis.toml`
+lalu jalankan `lapis restart`:
+
+```toml
+[input]
+soft_keyboard = true
+```
+
 ### GPU dan game
 
 lapis memberikan render node host ke Android, yang merender dengan Mesa

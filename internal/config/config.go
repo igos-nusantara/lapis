@@ -18,6 +18,7 @@ type Config struct {
 	Images     Images            `toml:"images"`
 	Container  Container         `toml:"container"`
 	Display    Display           `toml:"display"`
+	Input      Input             `toml:"input"`
 	Properties map[string]string `toml:"properties"`
 }
 
@@ -64,6 +65,13 @@ type Display struct {
 	// display (the images' native behavior) instead of fitting it to the
 	// app.
 	FullSizeWindows bool `toml:"full_size_windows"`
+}
+
+type Input struct {
+	// SoftKeyboard keeps Android's on-screen keyboard showing although the
+	// desktop's keyboard is attached. Off by default: typing goes through
+	// the host keyboard and the on-screen one would only cover the app.
+	SoftKeyboard bool `toml:"soft_keyboard"`
 }
 
 const (

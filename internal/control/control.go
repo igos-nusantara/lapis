@@ -128,7 +128,7 @@ func handle(cred *unix.Ucred, req api.Request) (*api.Response, error) {
 			if err := sysutil.Run("systemctl", "thaw", paths.ContainerUnit); err != nil {
 				return nil, err
 			}
-		case api.OpGetprop, api.OpApps, api.OpMaximize, api.OpResize:
+		case api.OpGetprop, api.OpApps, api.OpMaximize, api.OpResize, api.OpKeyboard:
 			return nil, errFrozen
 		}
 	}
@@ -170,6 +170,8 @@ func handle(cred *unix.Ucred, req api.Request) (*api.Response, error) {
 		return &api.Response{}, resizeTask(s, req)
 	case api.OpAdbKey:
 		return &api.Response{}, authorizeAdbKey(s, req.Key)
+	case api.OpKeyboard:
+		return &api.Response{}, applyKeyboard(s)
 	case api.OpFullUI:
 		return &api.Response{}, showFullUI(s)
 	}
@@ -376,6 +378,21 @@ var (
 // maximizeIfConfigured resizes the package's task to the display's app
 // area, which gives apps their tablet layout instead of Android's
 // phone-sized freeform window. The task appears shortly after launch.
+// applyKeyboard shows or hides Android's on-screen keyboard while the
+// desktop's keyboard (which Android sees as a hardware keyboard) is there.
+func applyKeyboard(s *api.Session) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	show := "0"
+	if cfg.Input.SoftKeyboard {
+		show = "1"
+	}
+	_, err = container.Output(s, "/system/bin/settings", "put", "secure", "show_ime_with_hard_keyboard", show)
+	return err
+}
+
 func maximizeIfConfigured(s *api.Session, pkg string) error {
 	cfg, err := config.Load()
 	if err != nil || !cfg.Display.MaximizeApps() {

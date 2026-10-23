@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/igos-nusantara/lapis/internal/control"
 	"github.com/igos-nusantara/lapis/internal/drivers"
 	"github.com/igos-nusantara/lapis/internal/hostsvc"
+	"github.com/igos-nusantara/lapis/internal/sysutil"
 )
 
 // OpenBinder connects to Android's binder context on the host.
@@ -45,6 +47,9 @@ func Launch(pkg string) error {
 	if !api.ValidPackage(pkg) {
 		return fmt.Errorf("invalid package name %q", pkg)
 	}
+	if err := ensureRunning(); err != nil {
+		return err
+	}
 	thawIfFrozen()
 	if c, err := OpenBinder(); err == nil {
 		if p, err := Platform(c, 5*time.Second); err == nil {
@@ -62,8 +67,34 @@ func Launch(pkg string) error {
 	return err
 }
 
+// ensureRunning starts this user's lapis session when Android is not
+// running, so app menu entries keep working after the session stopped, and
+// waits for Android to boot.
+func ensureRunning() error {
+	resp, err := control.Call(api.Request{Op: api.OpStatus})
+	if err != nil || resp.State != api.StateStopped {
+		return nil // the launch itself reports what is wrong
+	}
+	if err := sysutil.Run("systemctl", "--user", "start", SessionUnit); err != nil {
+		return fmt.Errorf("starting the lapis session: %w", err)
+	}
+	for deadline := time.Now().Add(3 * time.Minute); time.Now().Before(deadline); time.Sleep(2 * time.Second) {
+		r, err := control.Call(api.Request{Op: api.OpGetprop, Prop: "sys.boot_completed"})
+		if err == nil && r.Value == "1" {
+			return nil
+		}
+	}
+	return errors.New("Android did not finish booting within 3 minutes")
+}
+
+// SessionUnit is the systemd user unit that runs `lapis session start`.
+const SessionUnit = "lapis-session.service"
+
 // Intent opens an intent such as an app's settings page.
 func Intent(action, uri string) error {
+	if err := ensureRunning(); err != nil {
+		return err
+	}
 	thawIfFrozen()
 	c, err := OpenBinder()
 	if err != nil {

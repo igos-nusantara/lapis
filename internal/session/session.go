@@ -118,6 +118,9 @@ func Run(ctx context.Context, self string) error {
 	var p *hostsvc.Platform
 	if waitBoot(ctx) {
 		slog.Info("Android booted")
+		if _, err := control.Call(api.Request{Op: api.OpKeyboard}); err != nil {
+			slog.Warn("on-screen keyboard setting not applied", "err", err)
+		}
 		if conn != nil {
 			p, _ = Platform(conn, 30*time.Second)
 		}

@@ -41,6 +41,7 @@ const (
 	OpAdbKey   = "adb-key"
 	OpMaximize = "maximize"
 	OpResize   = "resize"
+	OpKeyboard = "keyboard"
 )
 
 type Request struct {
