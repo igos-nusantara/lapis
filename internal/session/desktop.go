@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/igos-nusantara/lapis/internal/api"
+	"github.com/igos-nusantara/lapis/internal/compat"
 	"github.com/igos-nusantara/lapis/internal/control"
 	"github.com/igos-nusantara/lapis/internal/hostsvc"
 )
@@ -171,6 +172,9 @@ func desktopEntry(s *api.Session, self string, e Entry) string {
 	fmt.Fprintf(&b, "Comment=Android app %s\n", e.Package)
 	fmt.Fprintf(&b, "Exec=%s app launch %s\n", self, e.Package)
 	fmt.Fprintf(&b, "Icon=%s\n", icon)
+	// Every Android window comes from the same host process, so docks and
+	// task switchers can tell apps apart only by the window's app id.
+	fmt.Fprintf(&b, "StartupWMClass=%s\n", compat.AppID(e.Package))
 	fmt.Fprintf(&b, "Categories=X-Lapis-App;\n")
 	fmt.Fprintf(&b, "Actions=app-settings;\n")
 	if hiddenApps[e.Package] {
