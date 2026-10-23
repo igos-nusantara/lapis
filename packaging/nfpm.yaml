@@ -34,3 +34,6 @@ contents:
 scripts:
   postinstall: packaging/postinstall.sh
   preremove: packaging/preremove.sh
+rpm:
+  scripts:
+    posttrans: packaging/posttrans.sh
