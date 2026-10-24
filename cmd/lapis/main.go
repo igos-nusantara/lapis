@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -54,6 +55,9 @@ Daily use (desktop user):
   lapis app list
   lapis app launch <package>
   lapis app intent <action> <uri>
+  lapis app install <file.apk>     install or update an app
+  lapis app uninstall <package>
+  lapis app packages               installed apps and their version codes
   lapis show-full-ui                show the whole Android desktop in one window
   sudo lapis display [tablet|phone|<dpi>|maximized|freeform|fit|full]
                                       show or set the layout (default tablet,
@@ -320,7 +324,7 @@ func initImages(cmd string, args []string) error {
 
 func app(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: lapis app list | launch <package> | intent <action> <uri>")
+		return errors.New("usage: lapis app list | launch <package> | intent <action> <uri> | install <file.apk> | uninstall <package> | packages")
 	}
 	switch args[0] {
 	case "list":
@@ -337,6 +341,31 @@ func app(args []string) error {
 			return errors.New("usage: lapis app launch <package>")
 		}
 		return session.Launch(args[1])
+	case "install":
+		if len(args) != 2 {
+			return errors.New("usage: lapis app install <file.apk>")
+		}
+		path, err := filepath.Abs(args[1])
+		if err != nil {
+			return err
+		}
+		_, err = control.Call(api.Request{Op: api.OpInstall, Path: path})
+		return err
+	case "uninstall":
+		if len(args) != 2 {
+			return errors.New("usage: lapis app uninstall <package>")
+		}
+		_, err := control.Call(api.Request{Op: api.OpUninstall, Package: args[1]})
+		return err
+	case "packages":
+		resp, err := control.Call(api.Request{Op: api.OpPackages})
+		if err != nil {
+			return err
+		}
+		for _, p := range resp.Packages {
+			fmt.Printf("%-45s %d\n", p.Package, p.VersionCode)
+		}
+		return nil
 	case "intent":
 		if len(args) != 3 {
 			return errors.New("usage: lapis app intent <action> <uri>")

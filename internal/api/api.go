@@ -42,6 +42,10 @@ const (
 	OpMaximize = "maximize"
 	OpResize   = "resize"
 	OpKeyboard = "keyboard"
+	// Install, uninstall and list the user's apps (app stores).
+	OpInstall   = "install"
+	OpUninstall = "uninstall"
+	OpPackages  = "packages"
 )
 
 type Request struct {
@@ -50,6 +54,8 @@ type Request struct {
 	Package string   `json:"package,omitempty"`
 	Prop    string   `json:"prop,omitempty"`
 	Key     string   `json:"key,omitempty"`
+	// Install: an APK file the caller owns.
+	Path string `json:"path,omitempty"`
 	// Resize: the size the app's host window should have.
 	ToWidth  int `json:"to_width,omitempty"`
 	ToHeight int `json:"to_height,omitempty"`
@@ -60,13 +66,20 @@ type App struct {
 	Activity string `json:"activity"`
 }
 
+// Package is an app the user installed, with its version.
+type Package struct {
+	Package     string `json:"package"`
+	VersionCode int64  `json:"version_code"`
+}
+
 type Response struct {
-	OK      bool     `json:"ok"`
-	Error   string   `json:"error,omitempty"`
-	State   string   `json:"state,omitempty"`
-	Session *Session `json:"session,omitempty"`
-	Value   string   `json:"value,omitempty"`
-	Apps    []App    `json:"apps,omitempty"`
+	OK       bool      `json:"ok"`
+	Error    string    `json:"error,omitempty"`
+	State    string    `json:"state,omitempty"`
+	Session  *Session  `json:"session,omitempty"`
+	Value    string    `json:"value,omitempty"`
+	Apps     []App     `json:"apps,omitempty"`
+	Packages []Package `json:"packages,omitempty"`
 }
 
 var pkgName = regexp.MustCompile(`^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)+$`)

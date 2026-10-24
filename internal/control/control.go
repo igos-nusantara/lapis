@@ -124,11 +124,11 @@ func handle(cred *unix.Ucred, req api.Request) (*api.Response, error) {
 	// Opening an app is a reason to wake Android; queries are not.
 	if container.State() == api.StateFrozen {
 		switch req.Op {
-		case api.OpLaunch, api.OpFullUI:
+		case api.OpLaunch, api.OpFullUI, api.OpInstall, api.OpUninstall:
 			if err := sysutil.Run("systemctl", "thaw", paths.ContainerUnit); err != nil {
 				return nil, err
 			}
-		case api.OpGetprop, api.OpApps, api.OpMaximize, api.OpResize, api.OpKeyboard:
+		case api.OpGetprop, api.OpApps, api.OpPackages, api.OpMaximize, api.OpResize, api.OpKeyboard:
 			return nil, errFrozen
 		}
 	}
@@ -168,6 +168,19 @@ func handle(cred *unix.Ucred, req api.Request) (*api.Response, error) {
 			return nil, errors.New("invalid package name")
 		}
 		return &api.Response{}, resizeTask(s, req)
+	case api.OpInstall:
+		return &api.Response{}, installAPK(s, cred, req.Path)
+	case api.OpUninstall:
+		if !api.ValidPackage(req.Package) {
+			return nil, errors.New("invalid package name")
+		}
+		return &api.Response{}, uninstall(s, req.Package)
+	case api.OpPackages:
+		out, err := container.Output(s, "/system/bin/cmd", "package", "list", "packages", "-3", "--show-versioncode")
+		if err != nil {
+			return nil, err
+		}
+		return &api.Response{Packages: parsePackages(out)}, nil
 	case api.OpAdbKey:
 		return &api.Response{}, authorizeAdbKey(s, req.Key)
 	case api.OpKeyboard:
@@ -335,6 +348,93 @@ func showFullUI(s *api.Session) error {
 	_, err := container.Output(s, "/system/bin/am", "start",
 		"-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME")
 	return err
+}
+
+// openOwnedAPK opens an APK the caller may hand to Android: a regular file
+// it owns (root may pass any). The checks run on the opened file, so a
+// link swapped in between cannot point the root service elsewhere.
+func openOwnedAPK(path string, uid uint32) (*os.File, int64, error) {
+	if !filepath.IsAbs(path) || !strings.HasSuffix(path, ".apk") {
+		return nil, 0, errors.New("invalid APK path: an absolute path to an .apk file is needed")
+	}
+	// O_NONBLOCK: a FIFO must not hang the service before it is rejected.
+	f, err := os.OpenFile(path, os.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, 0, err
+	}
+	var st unix.Stat_t
+	if err := unix.Fstat(int(f.Fd()), &st); err != nil {
+		f.Close()
+		return nil, 0, err
+	}
+	if st.Mode&unix.S_IFMT != unix.S_IFREG {
+		f.Close()
+		return nil, 0, fmt.Errorf("%s is not a regular file", path)
+	}
+	if uid != 0 && st.Uid != uid {
+		f.Close()
+		return nil, 0, fmt.Errorf("%s is not owned by uid %d", path, uid)
+	}
+	return f, st.Size, nil
+}
+
+// installAPK installs or updates an app. The APK reaches PackageManager
+// on stdin, so nothing is copied into Android's storage.
+func installAPK(s *api.Session, cred *unix.Ucred, path string) error {
+	f, size, err := openOwnedAPK(path, cred.Uid)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	cmd, err := container.Command(s, "/system/bin/cmd", "package", "install", "-r", "-S", strconv.FormatInt(size, 10))
+	if err != nil {
+		return err
+	}
+	cmd.Stdin = f
+	out, err := cmd.CombinedOutput()
+	if result := strings.TrimSpace(string(out)); !strings.Contains(result, "Success") {
+		if result == "" && err != nil {
+			result = err.Error()
+		}
+		return fmt.Errorf("install failed: %s", result)
+	}
+	return nil
+}
+
+func uninstall(s *api.Session, pkg string) error {
+	cmd, err := container.Command(s, "/system/bin/cmd", "package", "uninstall", pkg)
+	if err != nil {
+		return err
+	}
+	out, _ := cmd.CombinedOutput()
+	if result := strings.TrimSpace(string(out)); !strings.Contains(result, "Success") {
+		return fmt.Errorf("uninstall failed: %s", result)
+	}
+	return nil
+}
+
+// parsePackages reads `cmd package list packages --show-versioncode`:
+// "package:org.example versionCode:42" per line.
+func parsePackages(out string) []api.Package {
+	var pkgs []api.Package
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		name, ok := strings.CutPrefix(fields[0], "package:")
+		if !ok || !api.ValidPackage(name) {
+			continue
+		}
+		p := api.Package{Package: name}
+		for _, f := range fields[1:] {
+			if v, ok := strings.CutPrefix(f, "versionCode:"); ok {
+				p.VersionCode, _ = strconv.ParseInt(v, 10, 64)
+			}
+		}
+		pkgs = append(pkgs, p)
+	}
+	return pkgs
 }
 
 var adbKey = regexp.MustCompile(`^[A-Za-z0-9+/=]{100,}( [^\n\r]{0,256})?$`)
