@@ -77,6 +77,20 @@ lapis show-full-ui                     # whole Android desktop in one window
 
 Apps also appear in the desktop's app menu (`lapis.<package>.desktop`).
 
+### Installing apps
+
+App stores (such as an F-Droid client on the desktop) and scripts install
+APK files through the control service, without adb:
+
+```sh
+lapis app install ~/Downloads/app.apk   # install, or update to a newer version
+lapis app packages                      # installed apps and their version codes
+lapis app uninstall org.example.app
+```
+
+The APK must be a regular file the caller owns, outside `/tmp` (the control
+service has a private `/tmp`). Split APKs are not supported this way.
+
 ### Tablet or phone layout
 
 Android picks its layout from the screen's smallest width. lapis defaults

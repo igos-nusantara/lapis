@@ -80,6 +80,20 @@ lapis show-full-ui                     # seluruh desktop Android dalam satu wind
 
 Aplikasi juga muncul di menu aplikasi desktop (`lapis.<package>.desktop`).
 
+### Memasang aplikasi
+
+App store (misalnya klien F-Droid di desktop) dan skrip memasang file APK
+lewat layanan kontrol, tanpa adb:
+
+```sh
+lapis app install ~/Downloads/app.apk   # pasang, atau perbarui ke versi lebih baru
+lapis app packages                      # aplikasi terpasang beserta version code-nya
+lapis app uninstall org.example.app
+```
+
+APK harus berupa file biasa milik pemanggil, di luar `/tmp` (layanan kontrol
+memakai `/tmp` privat). Split APK tidak didukung lewat cara ini.
+
 ### Tata letak tablet atau phone
 
 Android memilih tata letak berdasarkan smallest width layar. Default lapis
