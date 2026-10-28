@@ -12,7 +12,7 @@ ROOTDEV=$(findmnt -no SOURCE / | xargs -I{} sh -c 'readlink -f {}')
 
 step "install (.deb, phase 4)"
 check "apt installs package + systemd-container" sudo apt-get install -y -q "$D"/lapis_*_amd64.deb
-check "version" sh -c 'lapis version | grep -q "lapis 0.6.0"'
+check "version" sh -c 'lapis version | grep -q "lapis 0.6.1"'
 check "control socket enabled" systemctl is-active -q lapis-control.socket
 systemctl --user daemon-reload
 lapis doctor | sed 's/^/    /'
