@@ -123,6 +123,11 @@ func run(cmd string, args []string) error {
 		return units.Install(*prefix)
 
 	case "uninstall":
+		// "lapis uninstall com.example.app" is a likely slip for
+		// "lapis app uninstall"; never remove lapis itself on it.
+		if len(args) != 0 {
+			return fmt.Errorf("lapis uninstall removes lapis itself and takes no arguments; to remove an app use: lapis app uninstall %s", args[0])
+		}
 		return units.Uninstall()
 
 	case "init", "upgrade":
