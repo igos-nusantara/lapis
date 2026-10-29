@@ -72,6 +72,9 @@ func TestSyncInputDirSymlink(t *testing.T) {
 	}
 }
 
+// Left and right stick, triggers and the D-pad.
+var axes = []uint{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x10, 0x11}
+
 // TestHostGamepads creates a virtual gamepad and expects udev to report it.
 func TestHostGamepads(t *testing.T) {
 	needRoot(t)
@@ -90,7 +93,16 @@ func TestHostGamepads(t *testing.T) {
 		btnSouth     = 0x130
 	)
 	fd := int(u.Fd())
-	for _, c := range [][2]uint{{uiSetEvbit, evKey}, {uiSetKeybit, btnSouth}, {uiSetEvbit, evAbs}, {uiSetAbsbit, 0}, {uiSetAbsbit, 1}} {
+	// Shaped like a real controller: udev's joystick heuristic rejects
+	// devices with only a button or two.
+	sets := [][2]uint{{uiSetEvbit, evKey}, {uiSetEvbit, evAbs}}
+	for _, b := range []uint{btnSouth, btnSouth + 1, btnSouth + 3, btnSouth + 4, btnSouth + 6, btnSouth + 7, btnSouth + 10, btnSouth + 11} {
+		sets = append(sets, [2]uint{uiSetKeybit, b}) // A B X Y TL TR SELECT START
+	}
+	for _, a := range axes {
+		sets = append(sets, [2]uint{uiSetAbsbit, a})
+	}
+	for _, c := range sets {
 		if err := unix.IoctlSetInt(fd, c[0], int(c[1])); err != nil {
 			t.Fatal(err)
 		}
@@ -104,7 +116,12 @@ func TestHostGamepads(t *testing.T) {
 	}
 	copy(dev.Name[:], "lapis test gamepad")
 	dev.Bustype, dev.Vendor, dev.Product = 0x03, 0x1234, 0x5678
-	dev.Absmax[0], dev.Absmax[1] = 255, 255
+	for _, a := range axes {
+		dev.Absmin[a], dev.Absmax[a] = -1, 1 // hats
+		if a < 0x10 {
+			dev.Absmin[a], dev.Absmax[a] = 0, 255
+		}
+	}
 	var buf bytes.Buffer
 	binary.Write(&buf, binary.NativeEndian, &dev)
 	if _, err := u.Write(buf.Bytes()); err != nil {
