@@ -111,6 +111,7 @@ func Run(ctx context.Context, self string) error {
 	slog.Info("Android container started, waiting for boot")
 
 	go watchSleep(ctx)
+	go watchInput(ctx)
 	conn, err := runHostServices(ctx, s, self)
 	if err != nil {
 		slog.Warn("host binder services unavailable", "err", err)
@@ -121,6 +122,7 @@ func Run(ctx context.Context, self string) error {
 		if _, err := control.Call(api.Request{Op: api.OpKeyboard}); err != nil {
 			slog.Warn("on-screen keyboard setting not applied", "err", err)
 		}
+		syncGamepads()
 		if conn != nil {
 			p, _ = Platform(conn, 30*time.Second)
 		}
@@ -143,6 +145,8 @@ func Run(ctx context.Context, self string) error {
 	unhealthy := 0 // consecutive periodic runs Android did not answer
 	periodic := func(tick int) {
 		defer func() { <-busy }()
+		// A restarted Android has a fresh /dev without the controllers.
+		syncGamepads()
 		if err := pruner.Prune(s); err != nil {
 			slog.Warn("pruning desktop entries failed", "err", err)
 			// Android's own watchdog restarts a stuck system_server within a

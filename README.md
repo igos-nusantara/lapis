@@ -158,6 +158,12 @@ window. SuperTuxKart in 3D at 60 fps:
 
 ![Mindustry in its own window](docs/screenshots/gpu-mindustry.png)
 
+Game controllers (USB or Bluetooth) that the host sees as joysticks are
+passed to Android as they are plugged in or paired, so games and emulators
+find them like on a phone. Other Bluetooth devices need nothing from lapis:
+headsets play Android's sound through the host's audio, and mice and
+keyboards reach Android through the desktop.
+
 ### Everyday apps
 
 Shopping and other ARM-only apps run with ARM translation (below). Shopee
