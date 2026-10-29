@@ -3,6 +3,7 @@ package control
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -38,6 +39,15 @@ func syncGamepads() error {
 		return err
 	}
 	defer root.Close()
+	return syncInputDir(root, hostGamepads(), func(name string) error {
+		return sysutil.Run("systemctl", "set-property", "--runtime", paths.ContainerUnit,
+			"DeviceAllow=/dev/input/"+name+" rw")
+	})
+}
+
+// syncInputDir makes root's dev/input hold the input nodes in want (name to
+// minor), calling allow before creating each.
+func syncInputDir(root *os.File, want map[string]uint32, allow func(name string) error) error {
 	// The container's root owns this tree: never follow its symlinks out
 	// of it.
 	fd, err := unix.Openat2(int(root.Fd()), "dev/input", &unix.OpenHow{
@@ -57,7 +67,7 @@ func syncGamepads() error {
 		return err
 	}
 
-	want := hostGamepads()
+	want = maps.Clone(want)
 	for _, name := range names {
 		var st unix.Stat_t
 		if unix.Fstatat(fd, name, &st, unix.AT_SYMLINK_NOFOLLOW) != nil ||
@@ -76,8 +86,7 @@ func syncGamepads() error {
 	old := unix.Umask(0)
 	defer unix.Umask(old)
 	for name, minor := range want {
-		if err := sysutil.Run("systemctl", "set-property", "--runtime", paths.ContainerUnit,
-			"DeviceAllow=/dev/input/"+name+" rw"); err != nil {
+		if err := allow(name); err != nil {
 			return err
 		}
 		if err := unix.Mknodat(fd, name, unix.S_IFCHR|0o660, int(unix.Mkdev(inputMajor, minor))); err != nil {
