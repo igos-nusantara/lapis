@@ -125,6 +125,13 @@ func TestHostGamepads(t *testing.T) {
 		}
 	}
 	if added == "" {
+		nodes, _ := filepath.Glob("/sys/class/input/event*")
+		for _, n := range nodes {
+			name, _ := os.ReadFile(filepath.Join(n, "device/name"))
+			dev, _ := os.ReadFile(filepath.Join(n, "dev"))
+			db, err := os.ReadFile("/run/udev/data/c" + string(bytes.TrimSpace(dev)))
+			t.Logf("%s %q udev=%v\n%s", n, bytes.TrimSpace(name), err, db)
+		}
 		t.Fatal("udev did not report the virtual gamepad as a joystick")
 	}
 	t.Log("gamepad:", added)
