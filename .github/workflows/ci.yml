@@ -22,6 +22,11 @@ jobs:
         run: go vet ./...
       - name: unit tests
         run: go test ./...
+      - name: root tests (input nodes, virtual gamepad)
+        run: |
+          sudo modprobe uinput
+          go test -c -o /tmp/control.test ./internal/control
+          sudo /tmp/control.test -test.run 'Gamepad|InputDir' -test.v
       - name: build packages
         # Same script as releases, so packaging breaks are caught early.
         run: VERSION=0.0.0-ci scripts/release.sh

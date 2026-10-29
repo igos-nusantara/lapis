@@ -163,6 +163,12 @@ window aplikasinya. SuperTuxKart 3D pada 60 fps:
 
 ![Mindustry dalam window sendiri](docs/screenshots/gpu-mindustry.png)
 
+Gamepad (USB atau Bluetooth) yang dikenali host sebagai joystick langsung
+diteruskan ke Android begitu dicolok atau dipasangkan, jadi game dan emulator
+menemukannya seperti di ponsel. Perangkat Bluetooth lain tidak butuh apa-apa
+dari lapis: headset memutar suara Android lewat audio host, sedangkan mouse
+dan keyboard sampai ke Android lewat desktop.
+
 ### Aplikasi sehari-hari
 
 Aplikasi belanja dan aplikasi khusus ARM lainnya berjalan dengan translasi

@@ -187,6 +187,8 @@ func handle(cred *unix.Ucred, req api.Request) (*api.Response, error) {
 		return &api.Response{}, applyKeyboard(s)
 	case api.OpFullUI:
 		return &api.Response{}, showFullUI(s)
+	case api.OpGamepads:
+		return &api.Response{}, syncGamepads()
 	}
 	return nil, fmt.Errorf("unknown operation %q", req.Op)
 }

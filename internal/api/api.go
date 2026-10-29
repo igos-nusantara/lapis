@@ -46,6 +46,8 @@ const (
 	OpInstall   = "install"
 	OpUninstall = "uninstall"
 	OpPackages  = "packages"
+	// Hand the host's game controllers to Android.
+	OpGamepads = "gamepads"
 )
 
 type Request struct {
